@@ -1,5 +1,6 @@
 import Prescription from "../models/prescription.model.js";
 import Inventory from "../models/inventory.model.js";
+import Patient from "../models/patientModel/patient.model.js";
 import { randomUUID } from "crypto";
 import { handleWhatsAppNotification } from "../utils/notification.helper.js";
 
@@ -163,14 +164,38 @@ export const getHistory = async (req, res) => {
 export const getPrescriptionsForPharmacy = async (req, res) => {
   try {
     const { clinicId } = req.query;
-    const query = { isDeleted: false };
+    const query = { 
+      isDeleted: false,
+      $or: [
+        { isBilled: true },
+        { dispenseStatus: { $in: ["Partially Dispensed", "Fully Dispensed"] } }
+      ]
+    };
     if (clinicId) query.clinicId = clinicId;
 
-    const prescriptions = await Prescription.find(query).sort({ createdAt: -1 });
+    const prescriptions = await Prescription.find(query).sort({ createdAt: -1 }).lean();
+
+    // Fetch patient phone and address
+    const patientIds = [...new Set(prescriptions.map(p => p.patientId))];
+    const patients = await Patient.find({ patientId: { $in: patientIds } }).lean();
+    
+    const patientMap = {};
+    patients.forEach(pat => {
+      patientMap[pat.patientId] = {
+        phone: pat.patientPhone,
+        address: pat.patientAddress
+      };
+    });
+
+    const prescriptionsWithPatientData = prescriptions.map(p => ({
+      ...p,
+      patientPhone: patientMap[p.patientId]?.phone || "N/A",
+      patientAddress: patientMap[p.patientId]?.address || "N/A"
+    }));
 
     return res.status(200).json({
       message: "Prescriptions Fetched Successfully",
-      data: prescriptions,
+      data: prescriptionsWithPatientData,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -229,6 +254,33 @@ export const dispensePrescription = async (req, res) => {
 
     return res.status(200).json({
       message: "Prescription Dispensed Successfully",
+      data: prescription,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateMedicineStatus = async (req, res) => {
+  try {
+    const { prescriptionId, medicineId, status } = req.body;
+    
+    if (!["pending", "given", "not available"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status value." });
+    }
+
+    const prescription = await Prescription.findOneAndUpdate(
+      { _id: prescriptionId, "medicinesData._id": medicineId },
+      { $set: { "medicinesData.$.status": status } },
+      { new: true }
+    );
+
+    if (!prescription) {
+      return res.status(404).json({ message: "Prescription or medicine not found." });
+    }
+
+    return res.status(200).json({
+      message: "Medicine status updated successfully",
       data: prescription,
     });
   } catch (error) {

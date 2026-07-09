@@ -26,11 +26,13 @@ const prescriptionSchema = new mongoose.Schema(
         dosage: { type: String, default: "1" },
         af_bf: stringRequired,
         days: { type: Number, default: 0 },
+        status: { type: String, enum: ["pending", "given", "not available"], default: "pending" },
       },
     ],
     isRefillable: { type: Boolean, default: false },
     refillLimit: { type: Number, default: 0 },
     refillCount: { type: Number, default: 0 },
+    isBilled: { type: Boolean, default: false },
     dispenseStatus: {
       type: String,
       enum: ["Pending", "Partially Dispensed", "Fully Dispensed"],

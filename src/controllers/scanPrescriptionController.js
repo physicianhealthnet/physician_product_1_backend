@@ -55,11 +55,22 @@ export const getScanPrescriptionsByStatus = async (req, res) => {
   try {
     const { statuses } = req.body; // array
     if (!statuses || statuses.length === 0) {
-      const all = await ScanPrescription.find({ isDeleted: false });
+      const all = await ScanPrescription.find({
+        isDeleted: false,
+        $and: [
+          { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+        ]
+      });
       return res.status(200).json({ success: true, count: all.length, data: all });
     }
 
-    const filtered = await ScanPrescription.find({ status: { $in: statuses }, isDeleted: false }).sort({ createdAt: -1 });
+    const filtered = await ScanPrescription.find({
+      status: { $in: statuses },
+      isDeleted: false,
+      $and: [
+        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+      ]
+    }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: filtered.length, data: filtered });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -222,7 +233,12 @@ export const getScanPrescriptionsByPatient = async (req, res) => {
 // Master Analytics Endpoint
 export const getScanDashboardStats = async (req, res) => {
   try {
-    const allScans = await ScanPrescription.find({ isDeleted: false });
+    const allScans = await ScanPrescription.find({
+      isDeleted: false,
+      $and: [
+        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+      ]
+    });
 
     let stats = {
       todayTotal: 0, morning: 0, afternoon: 0, evening: 0,

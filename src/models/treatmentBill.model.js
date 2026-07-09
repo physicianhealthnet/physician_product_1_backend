@@ -16,10 +16,14 @@ const treatmentBillSchema = new mongoose.Schema(
     treatments: [
       {
         name: string,
+        category: string,
         price: string,
         quantity: string,
         total: string,
         notes: string,
+        prescriptionId: string,
+        labPrescriptionId: string,
+        scanPrescriptionId: string,
       },
     ],
 

@@ -1,5 +1,8 @@
 import { createDBService } from "../services/db.service.js";
 import TreatmentBill from "../models/treatmentBill.model.js";
+import Prescription from "../models/prescription.model.js";
+import LabPrescription from "../models/labPrescription.model.js";
+import ScanPrescription from "../models/scanPrescription.model.js";
 import { handleWhatsAppNotification } from "../utils/notification.helper.js";
 
 const treatmentBillService = createDBService(TreatmentBill);
@@ -38,6 +41,42 @@ export const addTreatmentBillController = async (req, res) => {
       ...billData,
       treatment_status: "live",
     });
+
+    // Extract IDs from treatments and update their isBilled status
+    if (billData.treatments && Array.isArray(billData.treatments)) {
+      const prescriptionIds = [...new Set(billData.treatments
+        .filter(t => t.prescriptionId)
+        .map(t => t.prescriptionId))];
+      
+      if (prescriptionIds.length > 0) {
+        await Prescription.updateMany(
+          { _id: { $in: prescriptionIds } },
+          { $set: { isBilled: true } }
+        );
+      }
+
+      const labPrescriptionIds = [...new Set(billData.treatments
+        .filter(t => t.labPrescriptionId)
+        .map(t => t.labPrescriptionId))];
+
+      if (labPrescriptionIds.length > 0) {
+        await LabPrescription.updateMany(
+          { _id: { $in: labPrescriptionIds } },
+          { $set: { isBilled: true } }
+        );
+      }
+
+      const scanPrescriptionIds = [...new Set(billData.treatments
+        .filter(t => t.scanPrescriptionId)
+        .map(t => t.scanPrescriptionId))];
+
+      if (scanPrescriptionIds.length > 0) {
+        await ScanPrescription.updateMany(
+          { _id: { $in: scanPrescriptionIds } },
+          { $set: { isBilled: true } }
+        );
+      }
+    }
 
     // Send Notification
     handleWhatsAppNotification(

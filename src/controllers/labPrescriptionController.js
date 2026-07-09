@@ -52,11 +52,22 @@ export const getLabPrescriptionsByStatus = async (req, res) => {
   try {
     const { statuses } = req.body; // array
     if (!statuses || statuses.length === 0) {
-      const all = await LabPrescription.find({ isDeleted: false });
+      const all = await LabPrescription.find({
+        isDeleted: false,
+        $and: [
+          { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+        ]
+      });
       return res.status(200).json({ success: true, count: all.length, data: all });
     }
 
-    const filtered = await LabPrescription.find({ status: { $in: statuses }, isDeleted: false }).sort({ createdAt: -1 });
+    const filtered = await LabPrescription.find({
+      status: { $in: statuses },
+      isDeleted: false,
+      $and: [
+        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+      ]
+    }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: filtered.length, data: filtered });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -182,7 +193,12 @@ export const getLabPrescriptionsByPatient = async (req, res) => {
 // Master Analytics Endpoint
 export const getLabDashboardStats = async (req, res) => {
   try {
-    const allLabs = await LabPrescription.find({ isDeleted: false });
+    const allLabs = await LabPrescription.find({
+      isDeleted: false,
+      $and: [
+        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
+      ]
+    });
 
     let stats = {
       todayTotal: 0, morning: 0, afternoon: 0, evening: 0,

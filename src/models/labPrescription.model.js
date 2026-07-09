@@ -32,6 +32,7 @@ const labPrescriptionSchema = new mongoose.Schema(
     appointmentDateTime: { type: Date, default: null },
     reminderSent: { type: Boolean, default: false },
     isDeleted: { type: Boolean, default: false },
+    isBilled: { type: Boolean, default: false },
   },
   {
     timestamps: true, // Adds createdAt and updatedAt
