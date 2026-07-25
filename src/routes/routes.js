@@ -40,7 +40,7 @@ router.use("/patientdocuments", patientDocumentsRouter);
 router.use("/consentfrom", consentFromRoutes);
 
 //appointment routes
-// router.use("/appointment", appointmentRouter);
+router.use("/appointment", appointmentRouter);
 
 //business analytics tools
 router.use("/business-tool", businessAnalyticsToolsRouter);

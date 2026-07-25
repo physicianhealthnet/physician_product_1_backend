@@ -1,6 +1,54 @@
 import { Chat } from "../models/chat.model.js";
+import Patient from "../models/patientModel/patient.model.js";
+
+let ioInstance = null;
+
+class ActiveSocketsMap {
+    constructor() {
+        this.rawMap = new Map();
+    }
+    has(key) {
+        return this.rawMap.has(key);
+    }
+    get(key) {
+        const val = this.rawMap.get(key);
+        if (val && val instanceof Set) {
+            return {
+                connected: Array.from(val).some(s => s.connected),
+                emit: (event, ...args) => {
+                    val.forEach(s => {
+                        if (s.connected) {
+                            s.emit(event, ...args);
+                        }
+                    });
+                }
+            };
+        }
+        return undefined;
+    }
+    add(key, socket) {
+        if (!this.rawMap.has(key)) {
+            this.rawMap.set(key, new Set());
+        }
+        this.rawMap.get(key).add(socket);
+    }
+    remove(key, socket) {
+        if (this.rawMap.has(key)) {
+            const set = this.rawMap.get(key);
+            set.delete(socket);
+            if (set.size === 0) {
+                this.rawMap.delete(key);
+            }
+        }
+    }
+}
+
+export const activeSockets = new ActiveSocketsMap();
+
+export const getIO = () => ioInstance;
 
 export const initializeSocket = (io) => {
+    ioInstance = io;
     io.on("connection", (socket) => {
         const { userType, clinicId, userName, patientId, patientName } = socket.handshake.auth;
         console.log(`Socket Connected: ${socket.id} (${userType}) - Clinic: ${clinicId}`);
@@ -28,7 +76,44 @@ export const initializeSocket = (io) => {
             // Patient joins their specific chat room
             const room = `chat:${clinicId}:${patientId}`;
             socket.join(room);
-            console.log(`Patient ${patientName} joined ${room}`);
+            console.log(`Patient ${patientName || userName || 'Patient'} joined ${room}`);
+            
+            // Track active socket under all identifiers
+            if (patientId) {
+                activeSockets.add(patientId, socket);
+                
+                Patient.findOne({
+                    $or: [
+                        { patientId: patientId },
+                        { PHN_ID: patientId },
+                        ...(/^[0-9a-fA-F]{24}$/.test(patientId) ? [{ _id: patientId }] : [])
+                    ]
+                }).then(pDoc => {
+                    if (pDoc) {
+                        const identifiers = [
+                            pDoc._id.toString(),
+                            pDoc.patientId,
+                            pDoc.PHN_ID,
+                            pDoc.patientPhone,
+                            pDoc.patientEmail
+                        ].filter(Boolean);
+                        
+                        identifiers.forEach(id => {
+                            activeSockets.add(id, socket);
+                        });
+                        
+                        socket.on("disconnect", () => {
+                            identifiers.forEach(id => {
+                                activeSockets.remove(id, socket);
+                            });
+                        });
+                    }
+                }).catch(err => console.error("Error looking up patient identifiers on clinic server:", err));
+
+                socket.on("disconnect", () => {
+                    activeSockets.remove(patientId, socket);
+                });
+            }
         }
 
         // Handle Doctor Sending Message
@@ -73,6 +158,36 @@ export const initializeSocket = (io) => {
 
                 // Emit back to Doctor (confirmation/update UI)
                 socket.emit("message:sent", newMessage);
+
+                // Trigger push notification to patient app via dependency hub
+                try {
+                    const isLocalEnv = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+                    const HUB_URL = process.env.HUB_URL ||
+                        (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
+
+                    await fetch(`${HUB_URL}/auth/send-patient-notification`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            patientId: targetPatientId,
+                            title: "New Message",
+                            body: message || "You have a new message.",
+                            data: {
+                                type: "chat",
+                                actionRoute: "/chatWindow",
+                                clinicId: String(clinicId),
+                                patientId: targetPatientId
+                            }
+                        })
+                    }).then(async res => {
+                        const resJson = await res.json();
+                        console.log("[FCM Chat doctor:message] Hub Response:", JSON.stringify(resJson));
+                    }).catch(err => {
+                        console.error("[FCM Chat doctor:message] Error calling Hub notification endpoint:", err.message);
+                    });
+                } catch (pushErr) {
+                    console.error("[FCM Chat doctor:message] Error triggering push notification request:", pushErr.message);
+                }
 
             } catch (error) {
                 console.error("Error sending doctor message:", error);
@@ -119,6 +234,36 @@ export const initializeSocket = (io) => {
                     } else {
                         io.to(chatRoom).emit("doctor:message", newMessage);
                         io.to(chatRoom).emit("message:received", newMessage);
+
+                        // Trigger push notification to patient app via dependency hub when doctor/clinic sends message
+                        try {
+                            const isLocalEnv = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+                            const HUB_URL = process.env.HUB_URL ||
+                                (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
+
+                            await fetch(`${HUB_URL}/auth/send-patient-notification`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    patientId: targetPatientId,
+                                    title: "New Message",
+                                    body: data.message || "You have a new message.",
+                                    data: {
+                                        type: "chat",
+                                        actionRoute: "/chatWindow",
+                                        clinicId: String(clinicId),
+                                        patientId: targetPatientId
+                                    }
+                                })
+                            }).then(async res => {
+                                const resJson = await res.json();
+                                console.log("[FCM Chat message:send] Hub Response:", JSON.stringify(resJson));
+                            }).catch(err => {
+                                console.error("[FCM Chat message:send] Error calling Hub notification endpoint:", err.message);
+                            });
+                        } catch (pushErr) {
+                            console.error("[FCM Chat message:send] Error triggering push notification request:", pushErr.message);
+                        }
                     }
                     socket.emit("message:sent", newMessage);
                 }

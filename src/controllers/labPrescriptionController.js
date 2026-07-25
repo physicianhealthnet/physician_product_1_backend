@@ -1,4 +1,5 @@
 import LabPrescription from "../models/labPrescription.model.js";
+import Patient from "../models/patientModel/patient.model.js";
 import dayjs from "dayjs";
 import isSameOrAfter from "dayjs/plugin/isSameOrAfter.js";
 import isSameOrBefore from "dayjs/plugin/isSameOrBefore.js";
@@ -30,6 +31,15 @@ export const createMockLabPrescriptions = async (req, res) => {
 export const createLabPrescription = async (req, res) => {
   try {
     const { pdfBase64, ...labData } = req.body;
+
+    // Resolve PHN_ID from Patient model if missing in payload
+    if (!labData.PHN_ID && labData.patientId) {
+      const patientDoc = await Patient.findOne({ patientId: labData.patientId });
+      if (patientDoc && patientDoc.PHN_ID) {
+        labData.PHN_ID = patientDoc.PHN_ID;
+      }
+    }
+
     const lab = new LabPrescription(labData);
     await lab.save();
 
@@ -63,10 +73,7 @@ export const getLabPrescriptionsByStatus = async (req, res) => {
 
     const filtered = await LabPrescription.find({
       status: { $in: statuses },
-      isDeleted: false,
-      $and: [
-        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
-      ]
+      isDeleted: false
     }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: filtered.length, data: filtered });
   } catch (error) {

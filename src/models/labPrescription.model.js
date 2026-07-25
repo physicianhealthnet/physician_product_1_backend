@@ -2,7 +2,7 @@ import mongoose from "mongoose";
 
 const labPrescriptionSchema = new mongoose.Schema(
   {
-    PHN_ID: {type: String, required: true},
+    PHN_ID: {type: String},
     prescriptionId: { type: String, required: true },
     patientId: { type: String, required: true },
     clinicId: { type: String, required: true },

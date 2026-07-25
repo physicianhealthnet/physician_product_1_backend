@@ -23,7 +23,10 @@ export const createAppointment = async (req, res) => {
       clinicId,
       doctorId,
       webAppointmentId,
+      fcmToken
     } = req.body;
+
+    console.log(fcmToken,"tocken")
 
     // 🛠️ If patient is empty string, set it to undefined
     if (!patient) patient = undefined;
@@ -79,6 +82,147 @@ export const createAppointment = async (req, res) => {
     newAppointment.meetLink = meetData.meetLink;
     newAppointment.meetingId = meetData.meetingId;
     await newAppointment.save();
+
+    // 🌐 Sync to patient side (secondary backend)
+    try {
+      let patientEmail = "";
+      let patientAadhar = "";
+      let globalPatientId = "";
+
+      if (patient) {
+        const localPatient = await Patient.findById(patient);
+        if (localPatient) {
+          patientEmail = localPatient.patientEmail || "";
+          patientAadhar = localPatient.patientAadhar || "";
+          globalPatientId = localPatient.PHN_ID || "";
+        }
+      }
+
+      console.log(">>> Syncing appointment patient globally...");
+      const isLocal = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+      const HUB_URL = process.env.HUB_URL || (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
+
+      const syncPatientResp = await fetch(`${HUB_URL}/auth/global-patient`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: patientName,
+          phno: phoneNumber,
+          email: patientEmail,
+          patientAadhar: patientAadhar,
+          clinicId: clinicId,
+          globalPatientId: globalPatientId || undefined
+        })
+      }).catch(async (e) => {
+        if (HUB_URL.includes("localhost")) {
+          const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
+          return fetch(`${altUrl}/auth/global-patient`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: patientName,
+              phno: phoneNumber,
+              email: patientEmail,
+              patientAadhar: patientAadhar,
+              clinicId: clinicId,
+              globalPatientId: globalPatientId || undefined
+            })
+          });
+        }
+        throw e;
+      });
+
+      if (syncPatientResp && syncPatientResp.ok) {
+        const syncPatientJson = await syncPatientResp.json();
+        const returnedPatient = syncPatientJson.data || syncPatientJson.patient;
+        if (returnedPatient && returnedPatient._id) {
+          const globalId = returnedPatient._id;
+
+          const appointmentPayload = {
+            cid: clinicId,
+            patientId: globalId,
+            patientName: patientName,
+            patientPhno: phoneNumber,
+            patientEmail: patientEmail,
+            appointmentDate: dayjs(date).format("YYYY-MM-DD"),
+            selectedSlot: startTime,
+            clinicName: "PHN 1", // Enriched by secondary server
+            docName: doctor,
+            doctorId: doctorId || "",
+            subdomainName: "demo", // Enriched
+            clinicLocation: "Hyderabad", // Enriched
+            clinicNumber: "7603857110", // Enriched
+            status: "approve", // Since it is booked by the clinic itself, status is "approve" (Approved)
+          };
+
+          console.log(">>> Syncing appointment to patient database...");
+          const syncApptResp = await fetch(`${HUB_URL}/user-appointment/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(appointmentPayload)
+          }).catch(async (e) => {
+            if (HUB_URL.includes("localhost")) {
+              const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
+              return fetch(`${altUrl}/user-appointment/create`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(appointmentPayload)
+              });
+            }
+            throw e;
+          });
+
+          // Emit socket event locally on port 3026 if patient is connected here
+          try {
+            const { activeSockets } = await import("../socket/socketController.js");
+            const targetIds = [
+              globalId,
+              returnedPatient.patientId,
+              returnedPatient.PHN_ID,
+              phoneNumber,
+              patientEmail
+            ].filter(Boolean);
+
+            let emitted = false;
+            for (const id of targetIds) {
+              const liveSocket = activeSockets.get(id);
+              if (liveSocket && liveSocket.connected) {
+                liveSocket.emit("appointment_update", {
+                  title: "Appointment Booked",
+                  body: `Your appointment with Dr. ${doctor || "Doctor"} at PHN 1 Clinic is confirmed for ${dayjs(date).format("DD MMM YYYY")} at ${startTime}.`,
+                  appointmentId: String(syncPatientJson.data?._id || ""),
+                  status: "approve",
+                  doctorName: doctor || "Doctor",
+                  clinicName: "PHN 1 Clinic",
+                  clinicLocation: "Hyderabad",
+                  appointmentDate: date,
+                  selectedSlot: startTime
+                });
+                console.log(`>>> Emitted socket notification locally on clinic server (3026) for ID: ${id}`);
+                emitted = true;
+                break;
+              }
+            }
+            if (!emitted) {
+              console.log(">>> Patient active socket not found on clinic server (3026).");
+            }
+          } catch (socketErr) {
+            console.error("Local socket emit failed in Appointments.controller.js:", socketErr);
+          }
+
+          if (syncApptResp && syncApptResp.ok) {
+            const syncApptJson = await syncApptResp.json();
+            if (syncApptJson.data && syncApptJson.data._id) {
+              const secondaryAppointmentId = syncApptJson.data._id;
+              newAppointment.webAppointmentId = secondaryAppointmentId;
+              await newAppointment.save();
+            }
+          }
+        }
+      }
+    } catch (syncError) {
+      console.error("❌ Failed to sync appointment to patient portal:", syncError.message);
+    }
 
     res.status(201).json({ success: true, appointment: newAppointment });
   } catch (err) {
@@ -211,6 +355,41 @@ export const updateAppointmentStatus = async (req, res) => {
     }
 
     await appointment.save();
+
+    // 🌐 Sync status update to secondary backend (patient-side portal database)
+    if (appointment.webAppointmentId) {
+      try {
+        const isLocal = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+        const HUB_URL = process.env.HUB_URL || (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
+
+        let secondaryStatus = "approve";
+        if (status === "Cancelled") {
+          secondaryStatus = "cancelled";
+        } else if (status === "Completed" || status === "Checked-out") {
+          secondaryStatus = "completed";
+        }
+
+        console.log(">>> Syncing appointment status update...");
+        await fetch(`${HUB_URL}/user-appointment/status/${appointment.webAppointmentId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: secondaryStatus })
+        }).catch(async (e) => {
+          if (HUB_URL.includes("localhost")) {
+            const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
+            return fetch(`${altUrl}/user-appointment/status/${appointment.webAppointmentId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: secondaryStatus })
+            });
+          }
+          throw e;
+        });
+      } catch (syncError) {
+        console.error("❌ Failed to sync appointment status update to patient portal:", syncError.message);
+      }
+    }
+
     res.json({ success: true, appointment });
   } catch (err) {
     console.error("❌ Error updating appointment:", err);
@@ -349,6 +528,41 @@ export const rescheduleAppointment = async (req, res) => {
     appointment.startTime = newTime;
 
     await appointment.save();
+
+    // 🌐 Sync reschedule to secondary backend (patient-side portal database)
+    if (appointment.webAppointmentId) {
+      try {
+        const isLocal = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+        const HUB_URL = process.env.HUB_URL || (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
+
+        console.log(">>> Syncing appointment reschedule...");
+        await fetch(`${HUB_URL}/user-appointment/${appointment.webAppointmentId}/reschedule`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appointmentDate: dayjs(newDate).format("YYYY-MM-DD"),
+            selectedSlot: newTime,
+            rescheduledBy: "Clinic"
+          })
+        }).catch(async (e) => {
+          if (HUB_URL.includes("localhost")) {
+            const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
+            return fetch(`${altUrl}/user-appointment/${appointment.webAppointmentId}/reschedule`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                appointmentDate: dayjs(newDate).format("YYYY-MM-DD"),
+                selectedSlot: newTime,
+                rescheduledBy: "Clinic"
+              })
+            });
+          }
+          throw e;
+        });
+      } catch (syncError) {
+        console.error("❌ Failed to sync appointment reschedule to patient portal:", syncError.message);
+      }
+    }
 
     res.json({
       success: true,

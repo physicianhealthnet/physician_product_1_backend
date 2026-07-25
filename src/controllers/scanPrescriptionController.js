@@ -33,6 +33,15 @@ export const createMockScanPrescriptions = async (req, res) => {
 export const createScanPrescription = async (req, res) => {
   try {
     const { pdfBase64, ...scanData } = req.body;
+    
+    // Resolve PHN_ID from Patient model if missing in payload
+    if (!scanData.PHN_ID && scanData.patientId) {
+      const patientDoc = await Patient.findOne({ patientId: scanData.patientId });
+      if (patientDoc && patientDoc.PHN_ID) {
+        scanData.PHN_ID = patientDoc.PHN_ID;
+      }
+    }
+
     const scan = new ScanPrescription(scanData);
     await scan.save();
 
@@ -66,10 +75,7 @@ export const getScanPrescriptionsByStatus = async (req, res) => {
 
     const filtered = await ScanPrescription.find({
       status: { $in: statuses },
-      isDeleted: false,
-      $and: [
-        { $or: [{ isBilled: true }, { status: { $ne: "Not Scheduled" } }] }
-      ]
+      isDeleted: false
     }).sort({ createdAt: -1 });
     res.status(200).json({ success: true, count: filtered.length, data: filtered });
   } catch (error) {
