@@ -8,7 +8,9 @@ import {
   updateUserController,
   deleteUserController,
   getDoctorController,
-  syncUserFromStaticDb
+  syncUserFromStaticDb,
+  setUserPasswordController,
+  checkNewAccountController
 } from "../controllers/userController.js";
 
 const userRouter = express.Router();
@@ -17,6 +19,8 @@ userRouter.post("/add", registerUser);
 userRouter.post("/sync-from-static", syncUserFromStaticDb);
 
 userRouter.post("/login", UserLoginController);
+userRouter.post("/set-password", setUserPasswordController);
+userRouter.post("/check-new-account", checkNewAccountController);
 
 userRouter.post("/get-user", getUserController);
 

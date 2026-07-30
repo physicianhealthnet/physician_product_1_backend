@@ -167,6 +167,7 @@ export const syncUserFromStaticDb = async (req, res) => {
           phone: u.phone,
           clinicId: u.clinicId,
           department: u.department || 'General',
+          isFirstLogin: true,
         });
 
         // Save to specific Doctor/Staff models as well
@@ -461,6 +462,88 @@ export const getDoctorController = async (req, res) => {
     return res.status(200).json({
       message: "Users fetched successfully",
       users,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+export const setUserPasswordController = async (req, res) => {
+  try {
+    const { userId, password } = req.body;
+
+    if (!userId || !password) {
+      return res.status(400).json({ message: "UserId and password are required" });
+    }
+
+    const user = await User.findOne({ userId, isDeleted: false });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+    user.isFirstLogin = false;
+    await user.save();
+
+    // Also update corresponding Doctor/Staff password if relevant
+    if (user.userType === 'doctor' || user.userType === 'master') {
+      await Doctor.findOneAndUpdate(
+        { $or: [{ phone: user.phone }, { email: user.email }] },
+        { $set: { password: hashedPassword } }
+      );
+    } else {
+      await Staff.findOneAndUpdate(
+        { phone: user.phone },
+        { $set: { password: hashedPassword } }
+      );
+    }
+
+    const { password: _, ...userDetails } = user.toObject();
+    return res.status(200).json({
+      message: "Password set successfully",
+      user: userDetails,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      message: "Server error",
+      error: err.message,
+    });
+  }
+};
+
+export const checkNewAccountController = async (req, res) => {
+  try {
+    const { email, userType, department } = req.body;
+
+    if (!email || !userType) {
+      return res.status(400).json({ message: "Email and userType are required" });
+    }
+
+    const query = {
+      $or: [{ email: email }, { phone: email }],
+      userType,
+      isDeleted: false,
+    };
+
+    if (userType === "doctor" && department) {
+      query.department = department;
+    }
+
+    const user = await User.findOne(query);
+    if (user && user.isFirstLogin) {
+      const { password: _, ...userDetails } = user.toObject();
+      return res.status(200).json({
+        isNewAccount: true,
+        user: userDetails,
+      });
+    }
+
+    return res.status(200).json({
+      isNewAccount: false,
     });
   } catch (err) {
     return res.status(500).json({

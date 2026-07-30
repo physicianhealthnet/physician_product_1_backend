@@ -25,6 +25,88 @@ await NativePixelDecoder.initializeAsync().catch(err => console.error("DICOM Dec
 import { analyzeScanImage } from "./src/utils/aiReportHelper.js";
 
 const app = express();
+
+const handleApiChangeBroadcast = async (req, data) => {
+  try {
+    const url = req.originalUrl || req.url || "";
+    let entity = "";
+    
+    // Determine entity type
+    if (url.includes("/assessment")) {
+      entity = "assessment";
+    } else if (url.includes("/appointment") || url.includes("/user-appointment")) {
+      entity = "appointment";
+    } else if (url.includes("/treatment-bill") || url.includes("/bill")) {
+      entity = "bill";
+    } else if (url.includes("/prescription")) {
+      entity = "prescription";
+    } else if (url.includes("/labPrescription") || url.includes("/lab-prescription")) {
+      entity = "lab";
+    } else if (url.includes("/scanPrescription") || url.includes("/scan-prescription")) {
+      entity = "scan";
+    } else if (url.includes("/patient")) {
+      entity = "patient";
+    } else if (url.includes("/inventory")) {
+      entity = "inventory";
+    } else if (url.includes("/sessionnotes")) {
+      entity = "sessionnote";
+    } else {
+      // Not a real-time synchronized entity
+      return;
+    }
+
+    // Determine action
+    let action = "";
+    if (req.method === "POST") action = "create";
+    else if (["PUT", "PATCH"].includes(req.method)) action = "update";
+    else if (req.method === "DELETE") action = "delete";
+
+    // Extract clinicId & patientId
+    const payloadData = data?.data || data || {};
+    const clinicId = req.body?.clinicId || req.params?.clinicId || payloadData?.clinicId || "PHN-C-0001";
+    const patientId = req.body?.patientId || req.params?.patientId || payloadData?.patientId || payloadData?.PHN_ID || "";
+
+    const isLocalEnv = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+    const HUB_URL = process.env.HUB_URL ||
+        (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
+
+    console.log(`[Broadcaster] Broadcasting ${action} for ${entity}. Clinic: ${clinicId}, Patient: ${patientId}`);
+
+    await fetch(`${HUB_URL}/auth/broadcast-update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clinicId,
+        patientId,
+        entity,
+        action,
+        data: payloadData
+      })
+    }).then(async (response) => {
+      const resJson = await response.json();
+      console.log(`[Broadcaster] Hub response:`, resJson);
+    }).catch((err) => {
+      console.error("[Broadcaster] Error calling hub:", err.message);
+    });
+  } catch (error) {
+    console.error("[Broadcaster] Failed to broadcast update:", error.message);
+  }
+};
+
+app.use((req, res, next) => {
+  const originalJson = res.json;
+  res.json = function (data) {
+    if (res.statusCode >= 200 && res.statusCode < 300 && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+      // Execute in next tick so we do not block client response
+      process.nextTick(() => {
+        handleApiChangeBroadcast(req, data);
+      });
+    }
+    return originalJson.call(this, data);
+  };
+  next();
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {

@@ -6,6 +6,54 @@ import LabPrescription from "../../models/labPrescription.model.js";
 import Prescription from "../../models/prescription.model.js";
 import { randomUUID } from "crypto";
 
+const broadcastVitalsToHub = async (assessment) => {
+  try {
+    if (!assessment || !assessment.vitals || assessment.vitals.length === 0) {
+      return;
+    }
+
+    const latestVitals = assessment.vitals[assessment.vitals.length - 1];
+    
+    // Find patient to get patientName if not present
+    let patientName = "Patient";
+    try {
+      const patient = await Patient.findOne({
+        $or: [{ patientId: assessment.patientId }, { PHN_ID: assessment.patientId }]
+      });
+      if (patient) {
+        patientName = patient.patientName;
+      }
+    } catch (patErr) {
+      console.error("[broadcastVitalsToHub] Error fetching patient details:", patErr);
+    }
+
+    const isLocalEnv = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
+    const HUB_URL = process.env.HUB_URL ||
+        (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
+
+    console.log(`[broadcastVitalsToHub] Forwarding vitals to hub: ${HUB_URL}`);
+
+    await fetch(`${HUB_URL}/auth/broadcast-vitals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clinicId: assessment.clinicId,
+        patientId: assessment.patientId,
+        patientName,
+        vitals: latestVitals,
+        assessmentId: assessment._id
+      })
+    }).then(async (response) => {
+      const resJson = await response.json();
+      console.log(`[broadcastVitalsToHub] Hub response:`, resJson);
+    }).catch((err) => {
+      console.error("[broadcastVitalsToHub] Error calling hub:", err.message);
+    });
+  } catch (error) {
+    console.error("[broadcastVitalsToHub] Failed to forward vitals to hub:", error.message);
+  }
+};
+
 const generateRequestsFromDiagnoses = async (
   diagnoses,
   clinicId,
@@ -85,6 +133,9 @@ export const createAssessment = async (req, res) => {
       );
     }
 
+    // Broadcast vitals to hub
+    broadcastVitalsToHub(assessment);
+
     res.status(201).json({
       success: true,
       message: "Assessment created successfully",
@@ -125,6 +176,9 @@ export const updateAssessment = async (req, res) => {
         updated.patientId,
       );
     }
+
+    // Broadcast vitals to hub
+    broadcastVitalsToHub(updated);
 
     res.json({
       success: true,

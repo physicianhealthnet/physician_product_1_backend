@@ -23,6 +23,7 @@ const userSchema = new mongoose.Schema(
     clinicId: stringRequired,
     department: { type: String },
     isDeleted: { type: Boolean, default: false },
+    isFirstLogin: { type: Boolean, default: true },
   },
   {
     timestamps: true,
