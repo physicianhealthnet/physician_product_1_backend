@@ -10,18 +10,17 @@ const userService = createDBService(User);
 
 export const registerUser = async (req, res) => {
   try {
-    const latestUser = await User.findOne({ isDeleted: false })
-      .sort({ createdAt: -1 })
-      .select("userId");
-
-    let nextUserNumber = 1;
-    if (latestUser && latestUser.userId) {
-      const splitId = latestUser.userId.split("-");
-      const number = parseInt(splitId[1]);
-      if (!isNaN(number)) {
-        nextUserNumber = number + 1;
+    const allUsers = await User.find({}, { userId: 1 });
+    let maxId = 0;
+    allUsers.forEach(u => {
+      if (u.userId && u.userId.startsWith("USER-")) {
+        const num = parseInt(u.userId.split("-")[1], 10);
+        if (!isNaN(num) && num > maxId) {
+          maxId = num;
+        }
       }
-    }
+    });
+    const nextUserNumber = maxId + 1;
 
     const userId = `USER-${nextUserNumber}`;
     req.body.userId = userId;
@@ -35,35 +34,47 @@ export const registerUser = async (req, res) => {
 
     // Save directly to Doctor/Staff models in Product DB
     if (user.userType === 'doctor' || user.userType === 'master') {
-      const existingDoc = await Doctor.findOne({ $or: [{ phone: user.phone }, { email: user.email }] });
+      const existingDoc = await Doctor.findOne({ $or: [{ phone: user.phone }, { email: user.email }], role: user.userType });
       if (!existingDoc) {
-        const lastDoctor = await Doctor.findOne().sort({ createdAt: -1 });
-        let num = 1;
-        if (lastDoctor && lastDoctor.doctorId) {
-          const split = lastDoctor.doctorId.split("-");
-          const n = parseInt(split[2] || split[1]);
-          if (!isNaN(n)) num = n + 1;
-        }
+        const allDoctors = await Doctor.find({}, { doctorId: 1 });
+        let maxDocId = 0;
+        allDoctors.forEach(d => {
+          if (d.doctorId && d.doctorId.includes("-")) {
+            const parts = d.doctorId.split("-");
+            const n = parseInt(parts[2] || parts[1], 10);
+            if (!isNaN(n) && n > maxDocId) {
+              maxDocId = n;
+            }
+          }
+        });
+        const num = maxDocId + 1;
+        const prefix = user.userType === 'master' ? 'PHN-MS' : 'PHN-DR';
         await Doctor.create({
-          doctorId: `PHN-DR-${String(num).padStart(4, "0")}`,
+          doctorId: `${prefix}-${String(num).padStart(4, "0")}`,
           doctorName: user.userName,
           department: req.body.department || "General",
           clinicId: user.clinicId,
           phone: user.phone,
           email: user.email,
           password: hashedPassword,
+          role: user.userType
         });
       }
     } else {
       const existingStaff = await Staff.findOne({ phone: user.phone });
       if (!existingStaff) {
-        const lastStaff = await Staff.findOne().sort({ createdAt: -1 });
-        let num = 1;
-        if (lastStaff && lastStaff.staffId) {
-          const split = lastStaff.staffId.split("-");
-          const n = parseInt(split[2] || split[1]);
-          if (!isNaN(n)) num = n + 1;
-        }
+        const allStaffs = await Staff.find({}, { staffId: 1 });
+        let maxStaffId = 0;
+        allStaffs.forEach(s => {
+          if (s.staffId && s.staffId.includes("-")) {
+            const parts = s.staffId.split("-");
+            const n = parseInt(parts[2] || parts[1], 10);
+            if (!isNaN(n) && n > maxStaffId) {
+              maxStaffId = n;
+            }
+          }
+        });
+        const num = maxStaffId + 1;
         await Staff.create({
           staffId: `PHN-ST-${String(num).padStart(4, "0")}`,
           name: user.userName,
@@ -140,26 +151,37 @@ export const syncUserFromStaticDb = async (req, res) => {
       return res.status(400).json({ message: "Invalid payload" });
     }
 
-    let latestUser = await User.findOne({ isDeleted: false })
-      .sort({ createdAt: -1 })
-      .select("userId");
-      
-    let nextUserNumber = 1;
-    if (latestUser && latestUser.userId) {
-      const splitId = latestUser.userId.split("-");
-      const number = parseInt(splitId[1]);
-      if (!isNaN(number)) {
-        nextUserNumber = number + 1;
+    const allUsers = await User.find({}, { userId: 1 });
+    let maxId = 0;
+    allUsers.forEach(u => {
+      if (u.userId && u.userId.startsWith("USER-")) {
+        const num = parseInt(u.userId.split("-")[1], 10);
+        if (!isNaN(num) && num > maxId) {
+          maxId = num;
+        }
       }
-    }
+    });
+    let nextUserNumber = maxId + 1;
 
-    const docsToInsert = [];
     for (const u of users) {
-      const exists = await User.findOne({ email: u.email });
-      if (!exists) {
-        const password = await bcrypt.hash(u.password || u.phone || 'Password123', 10);
-        docsToInsert.push({
-          userId: `USER-${nextUserNumber++}`,
+      // Find existing user of the same type by email/phone to prevent duplicates
+      let userDoc = await User.findOne({
+        $or: [{ email: u.email }, { phone: u.phone }],
+        userType: u.userType,
+        isDeleted: false
+      });
+
+      let password = u.password;
+      if (password && !password.startsWith("$2")) {
+        password = await bcrypt.hash(password, 10);
+      } else if (!password) {
+        password = await bcrypt.hash(u.phone || 'Password123', 10);
+      }
+
+      if (!userDoc) {
+        const newUserId = `USER-${nextUserNumber++}`;
+        userDoc = await User.create({
+          userId: newUserId,
           userName: u.userName,
           userType: u.userType,
           password: password,
@@ -169,56 +191,109 @@ export const syncUserFromStaticDb = async (req, res) => {
           department: u.department || 'General',
           isFirstLogin: true,
         });
+      } else {
+        // Update existing user record
+        userDoc.userName = u.userName;
+        userDoc.phone = u.phone;
+        userDoc.email = u.email;
+        userDoc.clinicId = u.clinicId;
+        if (u.department) {
+          userDoc.department = u.department;
+        }
+        if (u.password) {
+          userDoc.password = password;
+        }
+        await userDoc.save();
+      }
 
-        // Save to specific Doctor/Staff models as well
-        if (u.userType === 'doctor' || u.userType === 'master') {
-          const existingDoc = await Doctor.findOne({ $or: [{ phone: u.phone }, { email: u.email }] });
-          if (!existingDoc) {
-            const lastDoctor = await Doctor.findOne().sort({ createdAt: -1 });
-            let num = 1;
-            if (lastDoctor && lastDoctor.doctorId) {
-              const split = lastDoctor.doctorId.split("-");
-              const n = parseInt(split[2] || split[1]);
-              if (!isNaN(n)) num = n + 1;
+      // Save/Update specific Doctor/Staff models as well
+      if (u.userType === 'doctor' || u.userType === 'master') {
+        let existingDoc = await Doctor.findOne({
+          $or: [{ phone: u.phone }, { email: u.email }],
+          role: u.userType
+        });
+
+        if (!existingDoc) {
+          existingDoc = await Doctor.findOne({
+            $or: [{ phone: u.phone }, { email: u.email }]
+          });
+        }
+
+        if (!existingDoc) {
+          const allDoctors = await Doctor.find({}, { doctorId: 1 });
+          let maxDocId = 0;
+          allDoctors.forEach(d => {
+            if (d.doctorId && d.doctorId.includes("-")) {
+              const parts = d.doctorId.split("-");
+              const n = parseInt(parts[2] || parts[1], 10);
+              if (!isNaN(n) && n > maxDocId) {
+                maxDocId = n;
+              }
             }
-            await Doctor.create({
-              doctorId: `PHN-DR-${String(num).padStart(4, "0")}`,
-              doctorName: u.userName,
-              department: u.department || "General",
-              clinicId: u.clinicId,
-              phone: u.phone,
-              email: u.email,
-              password: password,
-            });
-          }
+          });
+          const num = maxDocId + 1;
+          const prefix = u.userType === 'master' ? 'PHN-MS' : 'PHN-DR';
+          await Doctor.create({
+            doctorId: `${prefix}-${String(num).padStart(4, "0")}`,
+            doctorName: u.userName,
+            department: u.department || "General",
+            clinicId: u.clinicId,
+            phone: u.phone,
+            email: u.email,
+            password: password,
+            role: u.userType
+          });
         } else {
-          const existingStaff = await Staff.findOne({ phone: u.phone });
-          if (!existingStaff) {
-            const lastStaff = await Staff.findOne().sort({ createdAt: -1 });
-            let num = 1;
-            if (lastStaff && lastStaff.staffId) {
-              const split = lastStaff.staffId.split("-");
-              const n = parseInt(split[2] || split[1]);
-              if (!isNaN(n)) num = n + 1;
-            }
-            await Staff.create({
-              staffId: `PHN-ST-${String(num).padStart(4, "0")}`,
-              name: u.userName,
-              role: (u.userType?.charAt(0).toUpperCase() + u.userType?.slice(1)) || "Receptionist",
-              clinicId: u.clinicId,
-              phone: u.phone,
-              password: password,
-            });
+          existingDoc.doctorName = u.userName;
+          existingDoc.phone = u.phone;
+          existingDoc.email = u.email;
+          existingDoc.clinicId = u.clinicId;
+          existingDoc.role = u.userType;
+          if (u.department) {
+            existingDoc.department = u.department;
           }
+          if (u.password) {
+            existingDoc.password = password;
+          }
+          await existingDoc.save();
+        }
+      } else {
+        const roleName = (u.userType?.charAt(0).toUpperCase() + u.userType?.slice(1)) || "Receptionist";
+        let existingStaff = await Staff.findOne({ phone: u.phone });
+        if (!existingStaff) {
+          const allStaffs = await Staff.find({}, { staffId: 1 });
+          let maxStaffId = 0;
+          allStaffs.forEach(s => {
+            if (s.staffId && s.staffId.includes("-")) {
+              const parts = s.staffId.split("-");
+              const n = parseInt(parts[2] || parts[1], 10);
+              if (!isNaN(n) && n > maxStaffId) {
+                maxStaffId = n;
+              }
+            }
+          });
+          const num = maxStaffId + 1;
+          await Staff.create({
+            staffId: `PHN-ST-${String(num).padStart(4, "0")}`,
+            name: u.userName,
+            role: roleName,
+            clinicId: u.clinicId,
+            phone: u.phone,
+            password: password,
+          });
+        } else {
+          existingStaff.name = u.userName;
+          existingStaff.role = roleName;
+          existingStaff.clinicId = u.clinicId;
+          if (u.password) {
+            existingStaff.password = password;
+          }
+          await existingStaff.save();
         }
       }
     }
 
-    if (docsToInsert.length > 0) {
-      await User.insertMany(docsToInsert);
-    }
-
-    res.status(200).json({ message: "Users synced successfully", count: docsToInsert.length });
+    res.status(200).json({ message: "Users synced successfully" });
   } catch (error) {
     res.status(500).json({ message: "Sync error", error: error.message });
   }
@@ -492,7 +567,7 @@ export const setUserPasswordController = async (req, res) => {
     // Also update corresponding Doctor/Staff password if relevant
     if (user.userType === 'doctor' || user.userType === 'master') {
       await Doctor.findOneAndUpdate(
-        { $or: [{ phone: user.phone }, { email: user.email }] },
+        { $or: [{ phone: user.phone }, { email: user.email }], role: user.userType },
         { $set: { password: hashedPassword } }
       );
     } else {
