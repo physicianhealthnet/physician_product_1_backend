@@ -15,7 +15,6 @@ const AppointmentSchema = new mongoose.Schema({
   doctorId: { type: mongoose.Schema.ObjectId, ref: "user" },
   category: {
     type: String,
-    enum: ["Consultation", "Treatment", "Rehab Training"],
   },
   date: { type: Date, required: true }, // "YYYY-MM-DD"
   startTime: { type: String, required: true }, // "hh:mm A"

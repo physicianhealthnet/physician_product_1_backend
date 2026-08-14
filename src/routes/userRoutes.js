@@ -10,7 +10,11 @@ import {
   getDoctorController,
   syncUserFromStaticDb,
   setUserPasswordController,
-  checkNewAccountController
+  checkNewAccountController,
+  updateFCMToken,
+  removeFCMToken,
+  notifyAppointmentBooking,
+  notifyChatMessage
 } from "../controllers/userController.js";
 
 const userRouter = express.Router();
@@ -31,5 +35,11 @@ userRouter.get("/getAllUsers", getAllUsersController);
 userRouter.patch("/update/:userId", updateUserController);
 
 userRouter.delete("/delete/:userId", deleteUserController);
+
+// FCM Push Notifications & Hooks
+userRouter.post("/update-fcm-token", updateFCMToken);
+userRouter.post("/remove-fcm-token", removeFCMToken);
+userRouter.post("/notify-appointment-booking", notifyAppointmentBooking);
+userRouter.post("/notify-chat-message", notifyChatMessage);
 
 export default userRouter;

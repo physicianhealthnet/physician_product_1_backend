@@ -200,6 +200,19 @@ export const getLabPrescriptionsByPatient = async (req, res) => {
 // Master Analytics Endpoint
 export const getLabDashboardStats = async (req, res) => {
   try {
+    let count = await LabPrescription.countDocuments({ isDeleted: false });
+    if (count === 0) {
+      const mockData = [
+        { prescriptionId: "PR-L-100", patientId: "P-100", clinicId: "C-1", ptrName: "Rahul Sharma", ptNo: "PT-1001", drName: "Dr. Ananya", labType: "Complete Blood Count (CBC)", labCenter: "Internal", priority: "High", status: "Not Scheduled", appointmentDateTime: null },
+        { prescriptionId: "PR-L-101", patientId: "P-101", clinicId: "C-1", ptrName: "Sneha Patel", ptNo: "PT-1002", drName: "Dr. Vikram", labType: "Urine Test", labCenter: "External", priority: "Medium", status: "Missing", appointmentDateTime: null },
+        { prescriptionId: "PR-L-102", patientId: "P-102", clinicId: "C-1", ptrName: "Amit Kumar", ptNo: "PT-1003", drName: "Dr. Ananya", labType: "Lipid Profile", labCenter: "Internal", priority: "Low", status: "Completed", appointmentDateTime: dayjs().subtract(1, 'day').toDate() },
+        { prescriptionId: "PR-L-103", patientId: "P-103", clinicId: "C-1", ptrName: "Pooja Verma", ptNo: "PT-1004", drName: "Dr. Rajesh", labType: "Thyroid Panel", labCenter: "Internal", priority: "Medium", status: "Report Not Ready", appointmentDateTime: dayjs().toDate() },
+        { prescriptionId: "PR-L-104", patientId: "P-104", clinicId: "C-1", ptrName: "Karan Johar", ptNo: "PT-1005", drName: "Dr. Ananya", labType: "Blood Glucose Fasting", labCenter: "Internal", priority: "High", status: "Not Reviewed", appointmentDateTime: dayjs().subtract(2, 'hour').toDate() },
+        { prescriptionId: "PR-L-105", patientId: "P-105", clinicId: "C-1", ptrName: "Ritu Desai", ptNo: "PT-1006", drName: "Dr. Vikram", labType: "Liver Function Test", labCenter: "External", priority: "Low", status: "Scheduled", appointmentDateTime: dayjs().add(2, 'hour').toDate() },
+      ];
+      await LabPrescription.insertMany(mockData);
+    }
+
     const allLabs = await LabPrescription.find({
       isDeleted: false,
       $and: [
@@ -252,7 +265,26 @@ export const getLabDashboardStats = async (req, res) => {
       }
     });
 
-    res.status(200).json({ success: true, data: stats });
+    const recentPrescriptionsRaw = await LabPrescription.find({ isDeleted: false })
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+    const recentPrescriptions = recentPrescriptionsRaw.map((p) => ({
+      _id: p._id,
+      patientId: p.patientId || p.ptNo || "",
+      patientName: p.ptrName || "",
+      testName: p.labType || "",
+      labName: p.labCenter || "",
+      status: p.status || "Pending",
+      createdAt: p.createdAt,
+      finalReportFileUrl: p.finalReportFileUrl || "",
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: stats,
+      recentPrescriptions: recentPrescriptions
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

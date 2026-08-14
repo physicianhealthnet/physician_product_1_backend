@@ -4,6 +4,7 @@ import Patient from "../../models/patientModel/patient.model.js";
 import ScanPrescription from "../../models/scanPrescription.model.js";
 import LabPrescription from "../../models/labPrescription.model.js";
 import Prescription from "../../models/prescription.model.js";
+import SpecialistAssessment from "../../models/specialistAssessment.model.js";
 import { randomUUID } from "crypto";
 
 const broadcastVitalsToHub = async (assessment) => {
@@ -119,10 +120,54 @@ const generateRequestsFromDiagnoses = async (
   }
 };
 
+const syncSpecialistAssessment = async (physicianAssessment) => {
+  try {
+    const { clinicId, patientId, phnId, medicalNotes } = physicianAssessment;
+    if (!medicalNotes || !medicalNotes.specialistAssessment) {
+      return;
+    }
+
+    const { selectedDept, ...assessmentData } = medicalNotes.specialistAssessment;
+    if (!selectedDept || selectedDept === "General Physician") {
+      return;
+    }
+
+    const query = {
+      clinicId,
+      patientId,
+      department: selectedDept,
+      isDeleted: false,
+    };
+
+    const updateData = {
+      phnId,
+      assessmentData,
+    };
+
+    if (physicianAssessment.treatment?.diagnosis?.length > 0) {
+      const lastDiagnosis = physicianAssessment.treatment.diagnosis[physicianAssessment.treatment.diagnosis.length - 1];
+      if (lastDiagnosis.doctorId) updateData.doctorId = lastDiagnosis.doctorId;
+      if (lastDiagnosis.doctorName) updateData.doctorName = lastDiagnosis.doctorName;
+    }
+
+    await SpecialistAssessment.findOneAndUpdate(query, updateData, {
+      upsert: true,
+      new: true,
+      setDefaultsOnInsert: true,
+    });
+    console.log(`[Sync] Specialist assessment synced for patient ${patientId} in department ${selectedDept}`);
+  } catch (err) {
+    console.error("[Sync] Error syncing specialist assessment:", err.message);
+  }
+};
+
 // CREATE
 export const createAssessment = async (req, res) => {
   try {
     const assessment = await PhysicianAssessment.create(req.body);
+
+    // Sync to specialist assessments collection
+    await syncSpecialistAssessment(assessment);
 
     // Auto-generate requests for all initial diagnoses
     if (assessment.treatment?.diagnosis) {
@@ -179,6 +224,9 @@ export const updateAssessment = async (req, res) => {
 
     // Broadcast vitals to hub
     broadcastVitalsToHub(updated);
+
+    // Sync to specialist assessments collection
+    await syncSpecialistAssessment(updated);
 
     res.json({
       success: true,

@@ -258,10 +258,11 @@ export const getDashboardDataController = async (req, res) => {
 
     const patientStats = aggregatePatientStats(patients, patientRegs);
     
-    // If doctor filter is active, total patients should be the count of unique patients they've handled
-    if (doctorId || req.query.doctorName) {
-      patientStats.total = handledPatientIds.size;
-    }
+    // Always return the clinic-wide total patients for the "Total Patients" metric
+    const totalClinicPatients = await Patient.countDocuments(
+      clinicArray ? { clinicId: { $in: clinicArray }, isDeleted: false } : { isDeleted: false }
+    );
+    patientStats.total = totalClinicPatients;
 
     // Calculate Attended Patients (Unique patients with "Completed" appointments for this doctor)
     let attendedPatientsCount = 0;

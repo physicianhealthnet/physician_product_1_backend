@@ -30,6 +30,9 @@ export const createAppointment = async (req, res) => {
 
     // 🛠️ If patient is empty string, set it to undefined
     if (!patient) patient = undefined;
+    if (!patientId || patientId.trim() === "") {
+      patientId = `TEMP-${dayjs().format("YYYYMMDD")}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
 
     // Check if this is a web appointment sync and if it already exists locally
     if (webAppointmentId) {

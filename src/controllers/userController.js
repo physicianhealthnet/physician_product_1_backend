@@ -359,8 +359,9 @@ export const deleteUserController = async (req, res) => {
 
 export const UserLoginController = async (req, res) => {
   try {
-    const { email, password, userType, department } = req.body;
-
+    const { email, password, userType, department, fcmToken } = req.body;
+    console.log(email, password, userType, department, fcmToken, "data.....................");
+    
     // Input validation
     if (!email || !password || !userType) {
       return res
@@ -387,7 +388,11 @@ export const UserLoginController = async (req, res) => {
       };
       user = await Patient.findOne(patientQuery);
     } else {
+      console.log("entred");
+      
       user = await User.findOne(query);
+      console.log(user,"data");
+      
     }
 
     if (!user) {
@@ -400,8 +405,20 @@ export const UserLoginController = async (req, res) => {
       return res.status(401).json({ message: "Invalid Password" });
     }
 
+    // Save FCM token if provided for a clinic user
+    if (fcmToken && userType !== "patient") {
+      if (!user.fcmTokens) user.fcmTokens = [];
+      if (!user.fcmTokens.includes(fcmToken)) {
+        user.fcmTokens.push(fcmToken);
+        await user.save();
+      }
+    }
+
     // Return success response with user details (excluding password)
     const { password: _, ...userDetails } = user.toObject();
+    if (userType !== "patient") {
+      userDetails.fcmTokens = user.fcmTokens;
+    }
     return res.status(200).json({
       message: "Login successful",
       user: userDetails,
@@ -625,5 +642,171 @@ export const checkNewAccountController = async (req, res) => {
       message: "Server error",
       error: err.message,
     });
+  }
+};
+
+const sendPushToHub = async (tokens, title, body, data) => {
+  try {
+    const isLocal = process.env.NODE_ENV !== "production";
+    const HUB_URL = process.env.HUB_URL || (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
+    const targetUrl = `${HUB_URL.replace(/\/$/, '')}/auth/send-direct-push`;
+    console.log(`[FCM Hub Dispatch] Sending push to Hub: ${targetUrl}`);
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokens, title, body, data }),
+    });
+    const resJson = await res.json().catch(() => ({}));
+    console.log(`[FCM Hub Dispatch] Response:`, resJson);
+    return resJson;
+  } catch (err) {
+    console.error(`[FCM Hub Dispatch] Failed to send push via Hub:`, err.message);
+  }
+};
+
+export const updateFCMToken = async (req, res) => {
+  try {
+    const { userId, fcmToken } = req.body;
+    if (!userId || !fcmToken) {
+      return res.status(400).json({ success: false, message: "userId and fcmToken are required" });
+    }
+    const user = await User.findOne({ userId, isDeleted: false });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Clinic user not found" });
+    }
+    if (!user.fcmTokens) user.fcmTokens = [];
+    if (!user.fcmTokens.includes(fcmToken)) {
+      user.fcmTokens.push(fcmToken);
+      await user.save();
+    }
+    return res.status(200).json({ success: true, message: "FCM token updated successfully", fcmTokens: user.fcmTokens });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const removeFCMToken = async (req, res) => {
+  try {
+    const { userId, fcmToken } = req.body;
+    if (!userId || !fcmToken) {
+      return res.status(400).json({ success: false, message: "userId and fcmToken are required" });
+    }
+    const user = await User.findOne({ userId, isDeleted: false });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "Clinic user not found" });
+    }
+    if (user.fcmTokens) {
+      user.fcmTokens = user.fcmTokens.filter(t => t !== fcmToken);
+      await user.save();
+    }
+    return res.status(200).json({ success: true, message: "FCM token removed successfully", fcmTokens: user.fcmTokens });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const notifyAppointmentBooking = async (req, res) => {
+  try {
+    const { clinicId, doctorId, docName, patientName, date, slot } = req.body;
+    let tokens = [];
+
+    // Find the doctor's User record if doctorId is provided
+    if (doctorId) {
+      const doctor = await Doctor.findOne({ doctorId });
+      if (doctor) {
+        const user = await User.findOne({
+          $or: [
+            ...(doctor.email ? [{ email: doctor.email }] : []),
+            ...(doctor.phone ? [{ phone: doctor.phone }] : []),
+            { userName: doctor.doctorName }
+          ],
+          userType: "doctor",
+          isDeleted: false
+        });
+        if (user && user.fcmTokens) {
+          tokens.push(...user.fcmTokens);
+        }
+      }
+    }
+
+    // Always fetch receptionists, masters, generalManager for the clinic to alert them too
+    const staffUsers = await User.find({
+      clinicId,
+      userType: { $in: ["receptionist", "generalManager", "master"] },
+      isDeleted: false
+    });
+    staffUsers.forEach(u => {
+      if (u.fcmTokens) {
+        tokens.push(...u.fcmTokens);
+      }
+    });
+
+    // Remove duplicates
+    tokens = [...new Set(tokens)].filter(Boolean);
+
+    if (tokens.length > 0) {
+      await sendPushToHub(
+        tokens,
+        "New Appointment Booking",
+        `New booking from ${patientName || "Patient"} for Dr. ${docName || "Doctor"} on ${date} at ${slot}.`,
+        {
+          type: "new_booking",
+          actionRoute: "/web-appointments",
+          clinicId,
+          doctorId,
+          patientName,
+          date,
+          slot
+        }
+      );
+    }
+
+    return res.status(200).json({ success: true, notifiedCount: tokens.length });
+  } catch (err) {
+    console.error("Error in notifyAppointmentBooking:", err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+export const notifyChatMessage = async (req, res) => {
+  try {
+    const { clinicId, patientId, patientName, message } = req.body;
+    let tokens = [];
+
+    // Find all users (doctors and staff) in this clinic to alert
+    const clinicUsers = await User.find({
+      clinicId,
+      userType: { $in: ["doctor", "receptionist", "generalManager", "master"] },
+      isDeleted: false
+    });
+
+    clinicUsers.forEach(u => {
+      if (u.fcmTokens) {
+        tokens.push(...u.fcmTokens);
+      }
+    });
+
+    // Remove duplicates
+    tokens = [...new Set(tokens)].filter(Boolean);
+
+    if (tokens.length > 0) {
+      await sendPushToHub(
+        tokens,
+        `New Message from ${patientName || "Patient"}`,
+        message || "You have a new message.",
+        {
+          type: "chat",
+          actionRoute: "/chat",
+          clinicId,
+          patientId,
+          patientName
+        }
+      );
+    }
+
+    return res.status(200).json({ success: true, notifiedCount: tokens.length });
+  } catch (err) {
+    console.error("Error in notifyChatMessage:", err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 };

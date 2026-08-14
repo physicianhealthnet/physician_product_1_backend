@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import path from "path";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import { initializeSocket } from "./src/socket/socketController.js";
+import { initializeSocket, getIO } from "./src/socket/socketController.js";
 import { initCronJobs } from "./src/utils/cronJobs.js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import multer from "multer";
@@ -71,6 +71,23 @@ const handleApiChangeBroadcast = async (req, data) => {
         (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
 
     console.log(`[Broadcaster] Broadcasting ${action} for ${entity}. Clinic: ${clinicId}, Patient: ${patientId}`);
+
+    // Direct Socket.io Broadcast to connected clients in the clinic's room
+    try {
+      const io = getIO();
+      if (io) {
+        console.log(`[Broadcaster] Emitting entity:updated to room clinic:${clinicId}`);
+        io.to(`clinic:${clinicId}`).emit("entity:updated", {
+          entity,
+          action,
+          clinicId,
+          patientId,
+          data: payloadData
+        });
+      }
+    } catch (socketEmitError) {
+      console.error("[Broadcaster] Failed to broadcast over Socket.io:", socketEmitError.message);
+    }
 
     await fetch(`${HUB_URL}/auth/broadcast-update`, {
       method: "POST",

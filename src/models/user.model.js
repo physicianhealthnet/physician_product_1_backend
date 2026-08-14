@@ -24,6 +24,7 @@ const userSchema = new mongoose.Schema(
     department: { type: String },
     isDeleted: { type: Boolean, default: false },
     isFirstLogin: { type: Boolean, default: true },
+    fcmTokens: { type: [String], default: [] },
   },
   {
     timestamps: true,
