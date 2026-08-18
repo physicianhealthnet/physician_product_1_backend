@@ -19,6 +19,8 @@ router.post("/mock", createMockScanPrescriptions);
 
 // Core CRUD
 router.post("/", createScanPrescription);
+router.post("/create", createScanPrescription);
+router.get("/get-all", getScanPrescriptionsByStatus);
 router.post("/by-status", getScanPrescriptionsByStatus);
 router.put("/:id/status", updateScanStatus);
 router.put("/:id", scanDocumentUpload, updateScanPrescription);

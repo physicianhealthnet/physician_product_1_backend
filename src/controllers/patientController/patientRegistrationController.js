@@ -4,44 +4,34 @@ import { createDBService } from "../../services/db.service.js";
 
 const patientRegistrationService = createDBService(PatientRegistration);
 
-// export const createPatientRegistrationController = async (req, res) => {
-//   try {
-//     const { clinicId, patientId } = req.body;
+export const createPatientRegistrationController = async (req, res) => {
+  try {
+    const { clinicId, patientId } = req.body;
 
-//     if (!clinicId || !patientId) {
-//       return res.status(400).json({
-//         message: "Clinic ID and Patient ID are required",
-//       });
-//     }
-//     const newRegistration = new PatientRegistration({
-//       ...req.body,
-//       treatment_status: "live",
-//     });
-//     await newRegistration.save();
-//     return res.status(201).json({
-//       message: "Patient registration created successfully",
-//       data: newRegistration,
-//     });
-//   } catch (err) {
-//     return res.status(500).json({
-//       message: "Server error",
-//       error: err.message,
-//     });
-//   }
-// };
+    if (!clinicId || !patientId) {
+      return res.status(400).json({
+        message: "Clinic ID and Patient ID are required",
+      });
+    }
 
-export const createPatientRegistrationController = async (req,res) => {
-  try{
-    const patientData = req.body
-    console.log(patientData);
-    
-  }catch (err) {
+    const newRegistration = new PatientRegistration({
+      ...req.body,
+      treatment_status: "live",
+    });
+    await newRegistration.save();
+
+    return res.status(201).json({
+      message: "Patient registration created successfully",
+      data: newRegistration,
+    });
+  } catch (err) {
+    console.error("createPatientRegistrationController error:", err);
     return res.status(500).json({
       message: "Server error",
       error: err.message,
     });
   }
-}
+};
 
 export const getByPatientIdController = async (req, res) => {
   try {
