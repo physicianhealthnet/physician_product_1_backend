@@ -527,25 +527,23 @@ export const getDoctorController = async (req, res) => {
   try {
     const { clinicId } = req.query;
 
-    // ✅ Step 1: Validate input
-    if (!clinicId) {
-      return res.status(400).json({ message: "clinicId is required" });
+    let query = {
+      userType: { $in: ["doctor", "master"] },
+      isDeleted: false,
+    };
+
+    if (clinicId) {
+      const clinicArray = Array.isArray(clinicId) ? clinicId : clinicId.split(",");
+      query.clinicId = { $in: clinicArray };
     }
 
-    // ✅ Step 2: Fetch only Doctor and master users for this clinic
-    const users = await User.find(
-      {
-        clinicId,
-        userType: { $in: ["doctor", "master"] },
-        isDeleted: false,
-      },
-      {
-        _id: 1,
-        userId: 1,
-        userName: 1,
-        userType: 1,
-      }
-    );
+    // ✅ Fetch Doctor and master users
+    const users = await User.find(query, {
+      _id: 1,
+      userId: 1,
+      userName: 1,
+      userType: 1,
+    });
 
     if (!users || users.length === 0) {
       return res.status(404).json({ message: "No users found" });

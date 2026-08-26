@@ -21,6 +21,7 @@ import treatmentHistoryRouter from "./treatmentHistoryRoutes.js";
 import AnalyticsRouter from "./analytics.route.js";
 import assessmentRouter from "./assessmentRoutes/assessmentRoutes.js";
 import specialistAssessmentRouter from "./assessmentRoutes/specialistAssessmentRoutes.js";
+import dentalAssessmentRouter from "./assessmentRoutes/dentalAssessmentRoutes.js";
 import preloadPrescriptionRoute from "./preloadPrescriptionRoute.js";
 import prescriptionRoute from "./prescription.route.js";
 import chatRouter from "./chatRoutes.js";
@@ -58,6 +59,7 @@ router.use("/feedback", feedbackRouter);
 router.use("/supplier", supplierRouter);
 router.use("/assessment", assessmentRouter);
 router.use("/specialist-assessment", specialistAssessmentRouter);
+router.use("/dental-assessment", dentalAssessmentRouter);
 
 router.use("/treatment-history", treatmentHistoryRouter);
 

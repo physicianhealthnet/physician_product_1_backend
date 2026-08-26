@@ -7,3 +7,4 @@ router.get("/messages/:clinicId/:patientId", getChatHistory);
 router.get("/sessions/:clinicId", getActiveSessions);
 
 export default router;
+

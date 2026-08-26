@@ -6,7 +6,9 @@ import sharp from "sharp";
 const { DicomImage, NativePixelDecoder } = dcmjsImaging;
 
 // Initialize DICOM decoders
-NativePixelDecoder.initializeAsync().catch(err => console.error("DICOM Decoder Init Error:", err));
+NativePixelDecoder.initializeAsync().catch((err) =>
+  console.error("DICOM Decoder Init Error:", err),
+);
 
 // genAI will be instantiated inside the function to ensure process.env is loaded
 
@@ -20,16 +22,18 @@ export const convertDicomToPng = async (dicomPath) => {
     const arrayBuffer = fs.readFileSync(dicomPath).buffer;
     const image = new DicomImage(arrayBuffer);
     const renderingResult = image.render();
-    
+
     const convertedPath = dicomPath + ".png";
     await sharp(Buffer.from(renderingResult.pixels), {
       raw: {
         width: renderingResult.width,
         height: renderingResult.height,
-        channels: 4
-      }
-    }).png().toFile(convertedPath);
-    
+        channels: 4,
+      },
+    })
+      .png()
+      .toFile(convertedPath);
+
     return convertedPath;
   } catch (error) {
     console.error("DICOM Conversion Error:", error);
@@ -56,13 +60,16 @@ export const analyzeScanImage = async (files, customPrompt = "") => {
 
     for (const file of fileList) {
       if (!file) continue;
-      
+
       let imagePath = file.path;
       let mimeType = file.mimetype;
       let isConverted = false;
 
       // Handle DICOM files
-      if (mimeType === "application/dicom" || (file.originalname && file.originalname.toLowerCase().endsWith(".dcm"))) {
+      if (
+        mimeType === "application/dicom" ||
+        (file.originalname && file.originalname.toLowerCase().endsWith(".dcm"))
+      ) {
         console.log("Converting DICOM to PNG for AI analysis...");
         imagePath = await convertDicomToPng(file.path);
         mimeType = "image/png";
@@ -100,15 +107,17 @@ IMPORTANT:
     let result;
     let retries = 3;
     let delay = 2000;
-    
+
     while (retries > 0) {
       try {
         result = await model.generateContent([prompt, ...imageParts]);
         break;
       } catch (err) {
         if ((err.status === 503 || err.status === 429) && retries > 1) {
-          console.warn(`[AI Helper] ${err.status} Error. Retrying in ${delay}ms... (${retries - 1} attempts left)`);
-          await new Promise(resolve => setTimeout(resolve, delay));
+          console.warn(
+            `[AI Helper] ${err.status} Error. Retrying in ${delay}ms... (${retries - 1} attempts left)`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
           retries--;
           delay *= 2; // Exponential backoff
         } else {

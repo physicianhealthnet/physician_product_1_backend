@@ -13,9 +13,18 @@ import { analyzeScanImage } from "../../utils/aiReportHelper.js";
 const patientService = createDBService(Patient);
 
 export const createPatientController = async (req, res) => {
-  console.log(">>> Product Backend: createPatientController called for:", req.body.patientName);
+  console.log(
+    ">>> Product Backend: createPatientController called for:",
+    req.body.patientName,
+  );
   try {
-    const { patientName, patientPhone, patientEmail, patientAddress, password } = req.body;
+    const {
+      patientName,
+      patientPhone,
+      patientEmail,
+      patientAddress,
+      password,
+    } = req.body;
 
     if (!patientName) {
       return res.status(400).json({ message: "Patient name is required" });
@@ -27,7 +36,9 @@ export const createPatientController = async (req, res) => {
     // Normalize clinicId to array if it arrives as a string
     const clinicIds = Array.isArray(req.body.clinicId)
       ? req.body.clinicId
-      : (req.body.clinicId ? [req.body.clinicId] : []);
+      : req.body.clinicId
+        ? [req.body.clinicId]
+        : [];
 
     if (req.file) {
       req.body.profileImg = `/uploads/patient-profile/${req.file.filename}`;
@@ -36,20 +47,26 @@ export const createPatientController = async (req, res) => {
     // Step 1: Create or fetch patient _id from secondary hub (MANDATORY FIRST STEP)
     let globalPatientId = null;
     try {
-      console.log(">>> Product Backend: Syncing with Hub (Establishing Global ID)...");
-      const isLocal = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
-      const HUB_URL = process.env.HUB_URL ||
-        (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
-      
+      console.log(
+        ">>> Product Backend: Syncing with Hub (Establishing Global ID)...",
+      );
+      const isLocal =
+        process.env.NODE_ENV !== "production" || process.env.HUB_URL;
+      const HUB_URL =
+        process.env.HUB_URL ||
+        (isLocal
+          ? "http://127.0.0.1:3028"
+          : "http://dependencyforphn.physicianhealthnet.com/api");
+
       const resp = await fetch(`${HUB_URL}/auth/global-patient`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: patientName,
           phno: patientPhone,
           email: patientEmail,
           address: patientAddress,
-          password: password || 'Password123', 
+          password: password || "Password123",
           clinicId: clinicIds,
           patientDOB: req.body.patientDOB,
           patientGender: req.body.patientGender,
@@ -57,15 +74,20 @@ export const createPatientController = async (req, res) => {
           patientAadhar: req.body.patientAadhar,
           ref_dr_name: req.body.ref_dr_name,
           ref_dr_id: req.body.ref_dr_id,
-          profileImg: req.body.profileImg
-        })
+          profileImg: req.body.profileImg,
+        }),
       }).catch(async (e) => {
         if (HUB_URL.includes("localhost")) {
           const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
           return fetch(`${altUrl}/auth/global-patient`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...req.body, name: patientName, phno: patientPhone, clinicId: clinicIds })
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...req.body,
+              name: patientName,
+              phno: patientPhone,
+              clinicId: clinicIds,
+            }),
           });
         }
         throw e;
@@ -74,33 +96,41 @@ export const createPatientController = async (req, res) => {
       const json = await resp.json();
       if (!resp.ok) {
         console.error(">>> Product Backend: Hub rejection:", json.message);
-        return res.status(resp.status).json({ 
-          message: "Could not register patient globally in Hub DB", 
-          error: json.message || "Hub server rejected request" 
+        return res.status(resp.status).json({
+          message: "Could not register patient globally in Hub DB",
+          error: json.message || "Hub server rejected request",
         });
       }
 
       const returnedPatient = json.data || json.patient || json;
       if (returnedPatient && returnedPatient._id) {
         globalPatientId = returnedPatient._id;
-        console.log(">>> Product Backend: Global ID established:", globalPatientId);
+        console.log(
+          ">>> Product Backend: Global ID established:",
+          globalPatientId,
+        );
       } else {
         throw new Error("Hub responded OK but returned no patient _id");
       }
     } catch (e) {
       console.error(">>> Product Backend: Critical Sync Error:", e.message);
-      return res.status(503).json({ 
-        message: "Secondary backend (Hub) is unreachable or returned invalid data. Patient registration aborted to maintain database consistency.",
-        error: e.message
+      return res.status(503).json({
+        message:
+          "Secondary backend (Hub) is unreachable or returned invalid data. Patient registration aborted to maintain database consistency.",
+        error: e.message,
       });
     }
 
     // Step 2: Generate robust local patientId
     const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().toLocaleString('en-US', { month: 'short' }).toUpperCase();
+    const currentMonth = new Date()
+      .toLocaleString("en-US", { month: "short" })
+      .toUpperCase();
     const patientsThisYear = await Patient.find({
-      patientId: { $regex: `^${currentYear}-` }
-    }).sort({ createdAt: -1 }).limit(1);
+      patientId: { $regex: `^${currentYear}-` },
+    })
+      .sort({ createdAt: -1 })
+      .limit(1);
 
     let nextPatientNumber = 1;
     if (patientsThisYear.length > 0) {
@@ -112,7 +142,7 @@ export const createPatientController = async (req, res) => {
       }
     }
 
-    const paddedNumber = String(nextPatientNumber).padStart(3, '0');
+    const paddedNumber = String(nextPatientNumber).padStart(3, "0");
     let finalPatientId = `${currentYear}-${currentMonth}-${paddedNumber}`;
     let isUnique = false;
     let safetyCounter = 0;
@@ -120,7 +150,7 @@ export const createPatientController = async (req, res) => {
       const existing = await Patient.findOne({ patientId: finalPatientId });
       if (existing) {
         nextPatientNumber++;
-        const newPaddedNumber = String(nextPatientNumber).padStart(3, '0');
+        const newPaddedNumber = String(nextPatientNumber).padStart(3, "0");
         finalPatientId = `${currentYear}-${currentMonth}-${newPaddedNumber}`;
         safetyCounter++;
       } else {
@@ -131,9 +161,12 @@ export const createPatientController = async (req, res) => {
     // Step 3: Create the patient locally with the Global ID
     req.body.patientId = finalPatientId;
     req.body.clinicId = clinicIds;
-    req.body.PHN_ID = globalPatientId; 
+    req.body.PHN_ID = globalPatientId;
 
-    console.log(">>> Product Backend: Creating local patient record for:", finalPatientId);
+    console.log(
+      ">>> Product Backend: Creating local patient record for:",
+      finalPatientId,
+    );
     const patient = await patientService.create(req.body);
 
     // Send WhatsApp ID Card Notification
@@ -143,11 +176,14 @@ export const createPatientController = async (req, res) => {
           req,
           patient,
           { patientId: patient.patientId },
-          "id_card"
+          "id_card",
         );
       }
     } catch (waErr) {
-      console.error(">>> Product Backend: WhatsApp ID Card Notification Failed:", waErr.message);
+      console.error(
+        ">>> Product Backend: WhatsApp ID Card Notification Failed:",
+        waErr.message,
+      );
     }
 
     return res.status(201).json({
@@ -159,7 +195,7 @@ export const createPatientController = async (req, res) => {
     return res.status(500).json({
       message: "Server error during patient creation",
       error: err.message,
-      stack: err.stack
+      stack: err.stack,
     });
   }
 };
@@ -219,8 +255,8 @@ export const getByPatientId = async (req, res) => {
     if (!patient) {
       return res.status(404).json({ message: "Patient not found" });
     }
-    console.log(patient,"data from backend testing");
-    
+    console.log(patient, "data from backend testing");
+
     return res.status(200).json({
       message: "Patient fetched successfully",
       patient,
@@ -260,14 +296,21 @@ export const editPatientController = async (req, res) => {
 
     // Step 2: Sync updates with Hub
     try {
-      console.log(">>> Product Backend: Syncing update with Hub for:", updatedPatient.patientName);
-      const isLocal = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
-      const HUB_URL = process.env.HUB_URL ||
-        (isLocal ? 'http://127.0.0.1:3028' : 'http://dependencyforphn.physicianhealthnet.com/api');
+      console.log(
+        ">>> Product Backend: Syncing update with Hub for:",
+        updatedPatient.patientName,
+      );
+      const isLocal =
+        process.env.NODE_ENV !== "production" || process.env.HUB_URL;
+      const HUB_URL =
+        process.env.HUB_URL ||
+        (isLocal
+          ? "http://127.0.0.1:3028"
+          : "http://dependencyforphn.physicianhealthnet.com/api");
       const hubUpdateFetch = async (url) => {
         return fetch(`${url}/auth/global-patient`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: updatedPatient.patientName,
             phno: updatedPatient.patientPhone,
@@ -282,36 +325,52 @@ export const editPatientController = async (req, res) => {
             ref_dr_id: updatedPatient.ref_dr_id,
             profileImg: updatedPatient.profileImg,
             password: req.body.password,
-            globalPatientId: updatedPatient.PHN_ID 
-          })
+            globalPatientId: updatedPatient.PHN_ID,
+          }),
         });
       };
 
-      hubUpdateFetch(HUB_URL).then(async (resp) => {
-        console.log("function start....");
-        
-        if (resp.ok) {
-          const json = await resp.json();
-          const returnedPatient = json.data || json.patient || json;
-          if (returnedPatient && returnedPatient._id && !updatedPatient.PHN_ID) {
-            await Patient.findByIdAndUpdate(updatedPatient._id, { PHN_ID: returnedPatient._id });
-          }
-          console.log(">>> Product Backend: Update sync successful");
-        }
+      hubUpdateFetch(HUB_URL)
+        .then(async (resp) => {
+          console.log("function start....");
 
-      }).catch(async (e) => {
-        if (HUB_URL.includes("localhost")) {
-          const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
-          try {
-            const resp = await hubUpdateFetch(altUrl);
-            if (resp.ok) console.log(">>> Product Backend: Update sync successful (via 127.0.0.1)");
-          } catch (e2) {
-             console.warn(">>> Product Backend: Update sync failed (Hub offline):", e2.message);
+          if (resp.ok) {
+            const json = await resp.json();
+            const returnedPatient = json.data || json.patient || json;
+            if (
+              returnedPatient &&
+              returnedPatient._id &&
+              !updatedPatient.PHN_ID
+            ) {
+              await Patient.findByIdAndUpdate(updatedPatient._id, {
+                PHN_ID: returnedPatient._id,
+              });
+            }
+            console.log(">>> Product Backend: Update sync successful");
           }
-        } else {
-          console.warn(">>> Product Backend: Update sync failed (Hub offline):", e.message);
-        }
-      });
+        })
+        .catch(async (e) => {
+          if (HUB_URL.includes("localhost")) {
+            const altUrl = HUB_URL.replace("localhost", "127.0.0.1");
+            try {
+              const resp = await hubUpdateFetch(altUrl);
+              if (resp.ok)
+                console.log(
+                  ">>> Product Backend: Update sync successful (via 127.0.0.1)",
+                );
+            } catch (e2) {
+              console.warn(
+                ">>> Product Backend: Update sync failed (Hub offline):",
+                e2.message,
+              );
+            }
+          } else {
+            console.warn(
+              ">>> Product Backend: Update sync failed (Hub offline):",
+              e.message,
+            );
+          }
+        });
     } catch (e) {
       console.warn(">>> Product Backend: Sync error during update:", e.message);
     }
@@ -339,7 +398,7 @@ export const deletePatientController = async (req, res) => {
     const deletedPatient = await Patient.findOneAndUpdate(
       { patientId: id, isDeleted: false },
       { isDeleted: true },
-      { new: true }
+      { new: true },
     );
 
     if (!deletedPatient) {
@@ -378,7 +437,7 @@ export const getPatientByIdAndPhone = async (req, res) => {
     await Patient.findByIdAndUpdate(
       patient._id,
       { FCMToken: FCMToken },
-      { new: true }
+      { new: true },
     );
 
     if (!patient) {
@@ -431,12 +490,17 @@ export const generateOverallAIReport = async (req, res) => {
     const { patientId } = req.params;
     const patient = await Patient.findOne({ patientId, isDeleted: false });
     if (!patient) {
-      return res.status(404).json({ success: false, message: "Patient not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Patient not found" });
     }
 
     const labs = await LabPrescription.find({ patientId, isDeleted: false });
     const scans = await ScanPrescription.find({ patientId, isDeleted: false });
-    const prescriptions = await Prescription.find({ patientId, isDeleted: false });
+    const prescriptions = await Prescription.find({
+      patientId,
+      isDeleted: false,
+    });
 
     // Format info
     const patientInfo = `
@@ -454,27 +518,39 @@ Conditions: ${patient.conditions || "None"}
 Allergies: ${patient.allergies || "None"}
 `;
 
-    const labsInfo = labs.map((l, idx) => `
+    const labsInfo = labs
+      .map(
+        (l, idx) => `
 Lab Test #${idx + 1}:
 Test Type: ${l.labType}
 Status: ${l.status}
 Notes: ${l.finalReportNotes || "None"}
-Results: ${l.testResults ? l.testResults.map(r => `${r.name}: ${r.value} ${r.unit} (Ref: ${r.referenceRange})`).join(", ") : "None"}
-`).join("\n");
+Results: ${l.testResults ? l.testResults.map((r) => `${r.name}: ${r.value} ${r.unit} (Ref: ${r.referenceRange})`).join(", ") : "None"}
+`,
+      )
+      .join("\n");
 
-    const scansInfo = scans.map((s, idx) => `
+    const scansInfo = scans
+      .map(
+        (s, idx) => `
 Scan Test #${idx + 1}:
 Scan Type: ${s.scanType}
 Status: ${s.status}
 Findings/Notes: ${s.finalReportNotes || "None"}
-`).join("\n");
+`,
+      )
+      .join("\n");
 
-    const prescriptionsInfo = prescriptions.map((p, idx) => `
+    const prescriptionsInfo = prescriptions
+      .map(
+        (p, idx) => `
 Prescription #${idx + 1}:
 Prescribed By: Dr. ${p.doctorName}
 Status: ${p.dispenseStatus}
-Medicines: ${p.medicinesData ? p.medicinesData.map(m => `${m.medication} - Dosage: ${m.dosage}, Days: ${m.days} (${m.morning}-${m.afternoon}-${m.night})`).join("; ") : "None"}
-`).join("\n");
+Medicines: ${p.medicinesData ? p.medicinesData.map((m) => `${m.medication} - Dosage: ${m.dosage}, Days: ${m.days} (${m.morning}-${m.afternoon}-${m.night})`).join("; ") : "None"}
+`,
+      )
+      .join("\n");
 
     const prompt = `
 Generate a comprehensive clinical health summary/report for the following patient based on their entire medical history records.
@@ -508,7 +584,7 @@ Include a clinical disclaimer at the bottom stating that this report is AI-gener
 
     res.status(200).json({
       success: true,
-      report: aiReportText
+      report: aiReportText,
     });
   } catch (error) {
     console.error("AI Report Generation Error:", error);
@@ -528,77 +604,125 @@ export const analyzeDocumentController = async (req, res) => {
     // Fetch all records and use the last object data
     const allLabs = await LabPrescription.find({
       $or: [{ PHN_ID: patientId }, { patientId: patientId }],
-      finalReportFileUrl: { $ne: "", $exists: true }
+      finalReportFileUrl: { $ne: "", $exists: true },
     });
     const labs = allLabs.length > 0 ? [allLabs[allLabs.length - 1]] : [];
 
     const allScans = await ScanPrescription.find({
       $or: [{ PHN_ID: patientId }, { patientId: patientId }],
-      finalReportFileUrl: { $ne: "", $exists: true }
+      finalReportFileUrl: { $ne: "", $exists: true },
     });
     const scans = allScans.length > 0 ? [allScans[allScans.length - 1]] : [];
 
     const assessment = await PhysicianAssessment.find({
       patientId,
       isDeleted: false,
-    }).sort({ _id: -1 }).limit(1);
+    })
+      .sort({ _id: -1 })
+      .limit(1);
 
     let vitalsString = "No recent vitals available.";
-    if (assessment && assessment.length > 0 && assessment[0].vitals && assessment[0].vitals.length > 0) {
-       const latestVitals = assessment[0].vitals[assessment[0].vitals.length - 1];
-       vitalsString = `Temperature: ${latestVitals.temperature || 'N/A'}, Pulse Rate: ${latestVitals.pulseRate || 'N/A'}, Respiratory Rate: ${latestVitals.respiratoryRate || 'N/A'}, Blood Pressure: ${latestVitals.bloodPressure || 'N/A'}, SpO2: ${latestVitals.spO2 || 'N/A'}, Height: ${latestVitals.height || 'N/A'}, Weight: ${latestVitals.weight || 'N/A'}, BMI: ${latestVitals.bmi || 'N/A'}, Blood Sugar (Fasting): ${latestVitals.bloodSugarFasting || 'N/A'}, Blood Sugar (After Food): ${latestVitals.bloodSugarAfterFood || 'N/A'}`;
+    if (
+      assessment &&
+      assessment.length > 0 &&
+      assessment[0].vitals &&
+      assessment[0].vitals.length > 0
+    ) {
+      const latestVitals =
+        assessment[0].vitals[assessment[0].vitals.length - 1];
+      vitalsString = `Temperature: ${latestVitals.temperature || "N/A"}, Pulse Rate: ${latestVitals.pulseRate || "N/A"}, Respiratory Rate: ${latestVitals.respiratoryRate || "N/A"}, Blood Pressure: ${latestVitals.bloodPressure || "N/A"}, SpO2: ${latestVitals.spO2 || "N/A"}, Height: ${latestVitals.height || "N/A"}, Weight: ${latestVitals.weight || "N/A"}, BMI: ${latestVitals.bmi || "N/A"}, Blood Sugar (Fasting): ${latestVitals.bloodSugarFasting || "N/A"}, Blood Sugar (After Food): ${latestVitals.bloodSugarAfterFood || "N/A"}`;
     }
 
     let labTestString = "No previous lab test results available.";
-    if (labs && labs.length > 0 && labs[0].testResults && labs[0].testResults.length > 0) {
-      labTestString = labs[0].testResults.map(tr => 
-        `- ${tr.name || 'N/A'}: ${tr.value || 'N/A'} ${tr.unit || ''} (Reference: ${tr.referenceRange || 'N/A'})`
-      ).join('\n');
+    if (
+      labs &&
+      labs.length > 0 &&
+      labs[0].testResults &&
+      labs[0].testResults.length > 0
+    ) {
+      labTestString = labs[0].testResults
+        .map(
+          (tr) =>
+            `- ${tr.name || "N/A"}: ${tr.value || "N/A"} ${tr.unit || ""} (Reference: ${tr.referenceRange || "N/A"})`,
+        )
+        .join("\n");
     }
 
     const reportsToProcess = [...labs, ...scans];
 
     if (reportsToProcess.length === 0) {
-       return res.status(404).json({ message: "No lab or scan reports found for this patient" });
+      return res
+        .status(404)
+        .json({ message: "No lab or scan reports found for this patient" });
     }
 
     const files = [];
 
     for (const report of reportsToProcess) {
       if (!report.finalReportFileUrl) continue;
-      
+
       const fileUrl = report.finalReportFileUrl;
       const fileName = path.basename(fileUrl);
-      
-      let possiblePath1 = path.join(process.cwd(), 'public', 'upload', 'lab-documents', fileName);
-      let possiblePath2 = path.join(process.cwd(), 'public', 'upload', 'scan-documents', fileName);
-      let possiblePath3 = path.join(process.cwd(), 'public', 'uploads', 'lab-documents', fileName);
-      
+
+      let possiblePath1 = path.join(
+        process.cwd(),
+        "public",
+        "upload",
+        "lab-documents",
+        fileName,
+      );
+      let possiblePath2 = path.join(
+        process.cwd(),
+        "public",
+        "upload",
+        "scan-documents",
+        fileName,
+      );
+      let possiblePath3 = path.join(
+        process.cwd(),
+        "public",
+        "uploads",
+        "lab-documents",
+        fileName,
+      );
+
       let filePath = null;
       if (fs.existsSync(possiblePath1)) filePath = possiblePath1;
       else if (fs.existsSync(possiblePath2)) filePath = possiblePath2;
       else if (fs.existsSync(possiblePath3)) filePath = possiblePath3;
-      
+
       if (!filePath) {
-         let rawPath = path.join(process.cwd(), 'public', fileUrl.replace('/uploads', '/upload'));
-         if (fs.existsSync(rawPath)) filePath = rawPath;
+        let rawPath = path.join(
+          process.cwd(),
+          "public",
+          fileUrl.replace("/uploads", "/upload"),
+        );
+        if (fs.existsSync(rawPath)) filePath = rawPath;
       }
 
       if (filePath) {
         files.push({
           path: filePath,
-          mimetype: filePath.endsWith('.png') ? 'image/png' : filePath.endsWith('.pdf') ? 'application/pdf' : filePath.endsWith('.dcm') ? 'application/dicom' : 'image/jpeg',
-          originalname: fileName
+          mimetype: filePath.endsWith(".png")
+            ? "image/png"
+            : filePath.endsWith(".pdf")
+              ? "application/pdf"
+              : filePath.endsWith(".dcm")
+                ? "application/dicom"
+                : "image/jpeg",
+          originalname: fileName,
         });
       }
     }
 
     if (files.length === 0) {
-       return res.status(404).json({ message: "Physical report files not found on server" });
+      return res
+        .status(404)
+        .json({ message: "Physical report files not found on server" });
     }
 
     const customPrompt = `
-You are a highly skilled AI Medical Assistant. Analyze the provided medical document image for patient: ${patient.patientName} (Age: ${patient.patientAge || 'Unknown'}, Gender: ${patient.patientGender || 'Unknown'}).
+You are a highly skilled AI Medical Assistant. Analyze the provided medical document image for patient: ${patient.patientName} (Age: ${patient.patientAge || "Unknown"}, Gender: ${patient.patientGender || "Unknown"}).
 
 Patient's latest vital signs for clinical context:
 ${vitalsString}
@@ -659,27 +783,39 @@ Analyze the image carefully and extract all relevant information matching this s
 
     let aiReportRaw = await analyzeScanImage(files, customPrompt);
     let aiReportParsed = [];
-    
+
     // Sanitize the response
     try {
       let sanitized = aiReportRaw.trim();
-      if (sanitized.startsWith('```json')) sanitized = sanitized.replace(/^```json/, '');
-      else if (sanitized.startsWith('```')) sanitized = sanitized.replace(/^```/, '');
-      if (sanitized.endsWith('```')) sanitized = sanitized.replace(/```$/, '');
+      if (sanitized.startsWith("```json"))
+        sanitized = sanitized.replace(/^```json/, "");
+      else if (sanitized.startsWith("```"))
+        sanitized = sanitized.replace(/^```/, "");
+      if (sanitized.endsWith("```")) sanitized = sanitized.replace(/```$/, "");
       sanitized = sanitized.trim();
-      
+
       aiReportParsed = JSON.parse(sanitized);
     } catch (parseError) {
       console.error("JSON Parse error from AI:", parseError);
-      aiReportParsed = [{ test: "error", data: { impression: "AI returned invalid format. Please try again." } }];
+      aiReportParsed = [
+        {
+          test: "error",
+          data: { impression: "AI returned invalid format. Please try again." },
+        },
+      ];
     }
 
     return res.status(200).json({
       message: "Patient records analyzed successfully",
-      report: aiReportParsed
+      report: aiReportParsed,
     });
   } catch (error) {
     console.error("Analyze Existing Document Error:", error);
-    return res.status(500).json({ message: "Failed to analyze patient records", error: error.message });
+    return res
+      .status(500)
+      .json({
+        message: "Failed to analyze patient records",
+        error: error.message,
+      });
   }
 };

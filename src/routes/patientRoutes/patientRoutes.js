@@ -22,7 +22,7 @@ patientRouter.get("/get-all", getAllPatientsController);
 
 patientRouter.get(
   "/get-all-by-clinic/:clinicId",
-  getAllPatientsByClinicController
+  getAllPatientsByClinicController,
 );
 
 patientRouter.get("/get-by-id/:patientId", getByPatientId);

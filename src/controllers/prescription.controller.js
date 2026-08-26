@@ -37,7 +37,7 @@ export const getPrescriptionsByPatientId = async (req, res) => {
     const { patientId } = req.params;
 
     const prescriptions = await Prescription.find({
-      $or: [{ patientId: patientId }, { ptNo: patientId }],
+      $or: [{ patientId: patientId }, { ptNo: patientId }, { PHN_ID: patientId }],
       treatment_status: "live",
       isDeleted: false,
     });
@@ -166,12 +166,8 @@ export const getPrescriptionsForPharmacy = async (req, res) => {
     const { clinicId } = req.query;
     const query = { 
       isDeleted: false,
-      $or: [
-        { isBilled: true },
-        { dispenseStatus: { $in: ["Partially Dispensed", "Fully Dispensed"] } }
-      ]
     };
-    if (clinicId) query.clinicId = clinicId;
+    if (clinicId && clinicId !== "undefined") query.clinicId = clinicId;
 
     const prescriptions = await Prescription.find(query).sort({ createdAt: -1 }).lean();
 

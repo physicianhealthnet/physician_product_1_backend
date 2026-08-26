@@ -94,9 +94,9 @@ export const updateLabStatus = async (req, res) => {
     if (!updated) return res.status(404).json({ success: false, message: "Lab request not found" });
 
     // Trigger Notification based on status
-    if (status === "Scheduled") {
+    if (status === "Scheduled" || status === "REPORT UPLOAD") {
       handleWhatsAppNotification(req, updated, { patientId: updated.patientId, PHN_ID: updated.PHN_ID, ptNo: updated.ptNo }, "lab_appointment").catch(err => console.error("Lab Confirmed Notification Error:", err.message));
-    } else if (status === "Completed") {
+    } else if (status === "COMPLETED" || status === "Completed") {
       handleWhatsAppNotification(req, updated, { patientId: updated.patientId, PHN_ID: updated.PHN_ID, ptNo: updated.ptNo }, "lab_appointment_complete").catch(err => console.error("Lab Completed Notification Error:", err.message));
     }
 
