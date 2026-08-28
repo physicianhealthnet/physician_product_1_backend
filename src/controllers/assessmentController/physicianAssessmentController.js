@@ -128,34 +128,46 @@ const syncSpecialistAssessment = async (physicianAssessment) => {
     }
 
     const { selectedDept, ...assessmentData } = medicalNotes.specialistAssessment;
-    if (!selectedDept || selectedDept === "General Physician") {
-      return;
+
+    const departmentsToSync = new Set();
+    if (selectedDept && selectedDept !== "General Physician") {
+      departmentsToSync.add(selectedDept);
+    } else {
+      for (const key of Object.keys(assessmentData)) {
+        if (key.endsWith("Sessions") && assessmentData[key]?.length > 0) {
+          departmentsToSync.add(key.replace("Sessions", ""));
+        }
+      }
     }
 
-    const query = {
-      clinicId,
-      patientId,
-      department: selectedDept,
-      isDeleted: false,
-    };
+    if (departmentsToSync.size === 0) return;
 
-    const updateData = {
-      phnId,
-      assessmentData,
-    };
+    for (const dept of departmentsToSync) {
+      const query = {
+        clinicId,
+        patientId,
+        department: dept,
+        isDeleted: false,
+      };
 
-    if (physicianAssessment.treatment?.diagnosis?.length > 0) {
-      const lastDiagnosis = physicianAssessment.treatment.diagnosis[physicianAssessment.treatment.diagnosis.length - 1];
-      if (lastDiagnosis.doctorId) updateData.doctorId = lastDiagnosis.doctorId;
-      if (lastDiagnosis.doctorName) updateData.doctorName = lastDiagnosis.doctorName;
+      const updateData = {
+        phnId,
+        assessmentData,
+      };
+
+      if (physicianAssessment.treatment?.diagnosis?.length > 0) {
+        const lastDiagnosis = physicianAssessment.treatment.diagnosis[physicianAssessment.treatment.diagnosis.length - 1];
+        if (lastDiagnosis.doctorId) updateData.doctorId = lastDiagnosis.doctorId;
+        if (lastDiagnosis.doctorName) updateData.doctorName = lastDiagnosis.doctorName;
+      }
+
+      await SpecialistAssessment.findOneAndUpdate(query, updateData, {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      });
+      console.log(`[Sync] Specialist assessment synced for patient ${patientId} in department ${dept}`);
     }
-
-    await SpecialistAssessment.findOneAndUpdate(query, updateData, {
-      upsert: true,
-      new: true,
-      setDefaultsOnInsert: true,
-    });
-    console.log(`[Sync] Specialist assessment synced for patient ${patientId} in department ${selectedDept}`);
   } catch (err) {
     console.error("[Sync] Error syncing specialist assessment:", err.message);
   }

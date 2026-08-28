@@ -4,7 +4,7 @@ const dentalAssessmentSchema = new mongoose.Schema(
   {
     clinicId: {
       type: String,
-      required: true,
+      default: "",
     },
     patientId: {
       type: String,
@@ -35,8 +35,8 @@ const dentalAssessmentSchema = new mongoose.Schema(
       default: {},
     },
     intraoralNotes: {
-      type: String,
-      default: "",
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
     teethStatus: {
       type: mongoose.Schema.Types.Mixed,
