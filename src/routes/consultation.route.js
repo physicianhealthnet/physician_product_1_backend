@@ -39,7 +39,11 @@ router.get("/appointments/:appointmentId/consultation-details", async (req, res)
 
 router.post("/clinical-notes", async (req, res) => {
   try {
-    const { roomName, appointmentId, summary, chiefComplaint, treatmentPlan } = req.body;
+    const { 
+      roomName, appointmentId, transcript, summary, chiefComplaint, 
+      history, examinationFindings, assessment, diagnosis, 
+      treatmentPlan, homeExerciseProgram, followUp 
+    } = req.body;
     
     if (!roomName && !appointmentId) {
       return res.status(400).json({ success: false, message: "roomName or appointmentId is required" });
@@ -59,9 +63,16 @@ router.post("/clinical-notes", async (req, res) => {
     let clinicalNote = await ClinicalNote.findOne(query);
 
     if (clinicalNote) {
+      clinicalNote.transcript = transcript !== undefined ? transcript : clinicalNote.transcript;
       clinicalNote.summary = summary !== undefined ? summary : clinicalNote.summary;
       clinicalNote.chiefComplaint = chiefComplaint !== undefined ? chiefComplaint : clinicalNote.chiefComplaint;
+      clinicalNote.history = history !== undefined ? history : clinicalNote.history;
+      clinicalNote.examinationFindings = examinationFindings !== undefined ? examinationFindings : clinicalNote.examinationFindings;
+      clinicalNote.assessment = assessment !== undefined ? assessment : clinicalNote.assessment;
+      clinicalNote.diagnosis = diagnosis !== undefined ? diagnosis : clinicalNote.diagnosis;
       clinicalNote.treatmentPlan = treatmentPlan !== undefined ? treatmentPlan : clinicalNote.treatmentPlan;
+      clinicalNote.homeExerciseProgram = homeExerciseProgram !== undefined ? homeExerciseProgram : clinicalNote.homeExerciseProgram;
+      clinicalNote.followUp = followUp !== undefined ? followUp : clinicalNote.followUp;
       if (actualAppointmentId) clinicalNote.appointmentId = actualAppointmentId;
       if (roomName) clinicalNote.roomName = roomName;
       await clinicalNote.save();
@@ -69,9 +80,16 @@ router.post("/clinical-notes", async (req, res) => {
       clinicalNote = await ClinicalNote.create({
         appointmentId: actualAppointmentId,
         roomName,
+        transcript,
         summary,
         chiefComplaint,
+        history,
+        examinationFindings,
+        assessment,
+        diagnosis,
         treatmentPlan,
+        homeExerciseProgram,
+        followUp,
       });
     }
 

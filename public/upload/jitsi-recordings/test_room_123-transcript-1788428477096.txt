@@ -1,0 +1,4 @@
+Transcript for room: test_room_123
+Generated at: 2026-09-03T09:41:17.097Z
+
+[] Doctor: Hello test
