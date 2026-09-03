@@ -42,7 +42,7 @@ router.post("/clinical-notes", async (req, res) => {
     const { 
       roomName, appointmentId, transcript, summary, chiefComplaint, 
       history, examinationFindings, assessment, diagnosis, 
-      treatmentPlan, homeExerciseProgram, followUp 
+      treatmentPlan, homeExerciseProgram, followUp, duration 
     } = req.body;
     
     if (!roomName && !appointmentId) {
@@ -73,6 +73,7 @@ router.post("/clinical-notes", async (req, res) => {
       clinicalNote.treatmentPlan = treatmentPlan !== undefined ? treatmentPlan : clinicalNote.treatmentPlan;
       clinicalNote.homeExerciseProgram = homeExerciseProgram !== undefined ? homeExerciseProgram : clinicalNote.homeExerciseProgram;
       clinicalNote.followUp = followUp !== undefined ? followUp : clinicalNote.followUp;
+      clinicalNote.duration = duration !== undefined ? duration : clinicalNote.duration;
       if (actualAppointmentId) clinicalNote.appointmentId = actualAppointmentId;
       if (roomName) clinicalNote.roomName = roomName;
       await clinicalNote.save();
@@ -90,6 +91,7 @@ router.post("/clinical-notes", async (req, res) => {
         treatmentPlan,
         homeExerciseProgram,
         followUp,
+        duration,
       });
     }
 

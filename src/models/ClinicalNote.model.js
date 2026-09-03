@@ -8,6 +8,7 @@ const ClinicalNoteSchema = new mongoose.Schema(
       required: false,
     },
     roomName: { type: String, required: false },
+    duration: { type: String },
     transcript: { type: String },
     summary: { type: String },
     chiefComplaint: { type: String },
