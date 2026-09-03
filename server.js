@@ -19,8 +19,9 @@ import authRouter from "./src/routes/googleAuth.route.js";
 import consultationRouter from "./src/routes/consultation.route.js";
 
 // Initialize DICOM decoders once
-await NativePixelDecoder.initializeAsync().catch(err => console.error("DICOM Decoder Init Error:", err));
-
+await NativePixelDecoder.initializeAsync().catch((err) =>
+  console.error("DICOM Decoder Init Error:", err),
+);
 
 import { analyzeScanImage } from "./src/utils/aiReportHelper.js";
 
@@ -30,19 +31,28 @@ const handleApiChangeBroadcast = async (req, data) => {
   try {
     const url = req.originalUrl || req.url || "";
     let entity = "";
-    
+
     // Determine entity type
     if (url.includes("/assessment")) {
       entity = "assessment";
-    } else if (url.includes("/appointment") || url.includes("/user-appointment")) {
+    } else if (
+      url.includes("/appointment") ||
+      url.includes("/user-appointment")
+    ) {
       entity = "appointment";
     } else if (url.includes("/treatment-bill") || url.includes("/bill")) {
       entity = "bill";
     } else if (url.includes("/prescription")) {
       entity = "prescription";
-    } else if (url.includes("/labPrescription") || url.includes("/lab-prescription")) {
+    } else if (
+      url.includes("/labPrescription") ||
+      url.includes("/lab-prescription")
+    ) {
       entity = "lab";
-    } else if (url.includes("/scanPrescription") || url.includes("/scan-prescription")) {
+    } else if (
+      url.includes("/scanPrescription") ||
+      url.includes("/scan-prescription")
+    ) {
       entity = "scan";
     } else if (url.includes("/patient")) {
       entity = "patient";
@@ -63,30 +73,50 @@ const handleApiChangeBroadcast = async (req, data) => {
 
     // Extract clinicId & patientId
     const payloadData = data?.data || data || {};
-    const clinicId = req.body?.clinicId || req.params?.clinicId || payloadData?.clinicId || "PHN-C-0001";
-    const patientId = req.body?.patientId || req.params?.patientId || payloadData?.patientId || payloadData?.PHN_ID || "";
+    const clinicId =
+      req.body?.clinicId ||
+      req.params?.clinicId ||
+      payloadData?.clinicId ||
+      "PHN-C-0001";
+    const patientId =
+      req.body?.patientId ||
+      req.params?.patientId ||
+      payloadData?.patientId ||
+      payloadData?.PHN_ID ||
+      "";
 
-    const isLocalEnv = process.env.NODE_ENV !== 'production' || process.env.HUB_URL;
-    const HUB_URL = process.env.HUB_URL ||
-        (isLocalEnv ? 'http://127.0.0.1:3028' : 'https://dependencyforphn.physicianhealthnet.com/api');
+    const isLocalEnv =
+      process.env.NODE_ENV !== "production" || process.env.HUB_URL;
+    const HUB_URL =
+      process.env.HUB_URL ||
+      (isLocalEnv
+        ? "http://127.0.0.1:3028"
+        : "https://dependencyforphn.physicianhealthnet.com/api");
 
-    console.log(`[Broadcaster] Broadcasting ${action} for ${entity}. Clinic: ${clinicId}, Patient: ${patientId}`);
+    console.log(
+      `[Broadcaster] Broadcasting ${action} for ${entity}. Clinic: ${clinicId}, Patient: ${patientId}`,
+    );
 
     // Direct Socket.io Broadcast to connected clients in the clinic's room
     try {
       const io = getIO();
       if (io) {
-        console.log(`[Broadcaster] Emitting entity:updated to room clinic:${clinicId}`);
+        console.log(
+          `[Broadcaster] Emitting entity:updated to room clinic:${clinicId}`,
+        );
         io.to(`clinic:${clinicId}`).emit("entity:updated", {
           entity,
           action,
           clinicId,
           patientId,
-          data: payloadData
+          data: payloadData,
         });
       }
     } catch (socketEmitError) {
-      console.error("[Broadcaster] Failed to broadcast over Socket.io:", socketEmitError.message);
+      console.error(
+        "[Broadcaster] Failed to broadcast over Socket.io:",
+        socketEmitError.message,
+      );
     }
 
     await fetch(`${HUB_URL}/auth/broadcast-update`, {
@@ -97,14 +127,16 @@ const handleApiChangeBroadcast = async (req, data) => {
         patientId,
         entity,
         action,
-        data: payloadData
+        data: payloadData,
+      }),
+    })
+      .then(async (response) => {
+        const resJson = await response.json();
+        console.log(`[Broadcaster] Hub response:`, resJson);
       })
-    }).then(async (response) => {
-      const resJson = await response.json();
-      console.log(`[Broadcaster] Hub response:`, resJson);
-    }).catch((err) => {
-      console.error("[Broadcaster] Error calling hub:", err.message);
-    });
+      .catch((err) => {
+        console.error("[Broadcaster] Error calling hub:", err.message);
+      });
   } catch (error) {
     console.error("[Broadcaster] Failed to broadcast update:", error.message);
   }
@@ -113,7 +145,11 @@ const handleApiChangeBroadcast = async (req, data) => {
 app.use((req, res, next) => {
   const originalJson = res.json;
   res.json = function (data) {
-    if (res.statusCode >= 200 && res.statusCode < 300 && ['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) {
+    if (
+      res.statusCode >= 200 &&
+      res.statusCode < 300 &&
+      ["POST", "PATCH", "PUT", "DELETE"].includes(req.method)
+    ) {
       // Execute in next tick so we do not block client response
       process.nextTick(() => {
         handleApiChangeBroadcast(req, data);
@@ -144,15 +180,18 @@ app.use(
     origin: (origin, callback) => callback(null, true),
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-  })
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "Accept",
+    ],
+  }),
 );
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-const genAI = new GoogleGenerativeAI(
-  process.env.GEMINI_API_KEY
-);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const upload = multer({ dest: "uploads/" });
 
@@ -180,7 +219,7 @@ app.post("/chat", async (req, res) => {
 
     res.status(500).json({
       error: "Something went wrong with the AI service",
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -204,7 +243,7 @@ app.post("/analyze-xray", upload.single("xray"), async (req, res) => {
     });
   } catch (error) {
     console.error("X-Ray Analysis Error:", error);
-    
+
     // Clean up file if it exists even on error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
@@ -212,11 +251,10 @@ app.post("/analyze-xray", upload.single("xray"), async (req, res) => {
 
     res.status(500).json({
       error: "Failed to analyze X-ray",
-      details: error.message
+      details: error.message,
     });
   }
 });
-
 
 import { analyzeLabResults } from "./src/utils/aiLabHelper.js";
 import { analyzePrescription } from "./src/utils/aiPharmacyHelper.js";
@@ -234,7 +272,7 @@ app.post("/analyze-lab", async (req, res) => {
     console.error("Lab Analysis Error:", error);
     res.status(500).json({
       error: "Failed to analyze lab results",
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -252,7 +290,7 @@ app.post("/analyze-pharmacy", async (req, res) => {
     console.error("Pharmacy AI Error:", error);
     res.status(500).json({
       error: "Failed to analyze prescription",
-      details: error.message
+      details: error.message,
     });
   }
 });
@@ -260,12 +298,12 @@ app.use("/uploads", express.static(path.join(__dirname, "public", "upload")));
 app.use(
   "/exercise-img-and-video",
   express.static(
-    path.join(__dirname, "public", "upload", "exercise-img-and-video")
-  )
+    path.join(__dirname, "public", "upload", "exercise-img-and-video"),
+  ),
 );
 app.use(
   "/expenditure-bills",
-  express.static(path.join(__dirname, "public", "upload", "expenditure-bills"))
+  express.static(path.join(__dirname, "public", "upload", "expenditure-bills")),
 );
 
 // moved up
@@ -276,7 +314,6 @@ app.use("/", consultationRouter);
 connectDB().then(() => {
   initCronJobs();
 });
-
 
 const PORT = process.env.PORT || 3002;
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

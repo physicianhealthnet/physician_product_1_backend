@@ -5,8 +5,9 @@ const MeetingTranscriptSchema = new mongoose.Schema(
     appointmentId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Sagar_Appointment",
-      required: true,
+      required: false,
     },
+    roomName: { type: String, required: false },
     transcript: { type: String, required: true },
   },
   {

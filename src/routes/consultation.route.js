@@ -36,4 +36,50 @@ router.get("/appointments/:appointmentId/consultation-details", async (req, res)
   }
 });
 
+
+router.post("/clinical-notes", async (req, res) => {
+  try {
+    const { roomName, appointmentId, summary, chiefComplaint, treatmentPlan } = req.body;
+    
+    if (!roomName && !appointmentId) {
+      return res.status(400).json({ success: false, message: "roomName or appointmentId is required" });
+    }
+
+    let actualAppointmentId = appointmentId;
+
+    if (!actualAppointmentId && roomName) {
+      const appointment = await AppointmentsModel.findOne({ meetingId: roomName });
+      if (appointment) {
+        actualAppointmentId = appointment._id;
+      }
+    }
+
+    const query = actualAppointmentId ? { appointmentId: actualAppointmentId } : { roomName };
+
+    let clinicalNote = await ClinicalNote.findOne(query);
+
+    if (clinicalNote) {
+      clinicalNote.summary = summary !== undefined ? summary : clinicalNote.summary;
+      clinicalNote.chiefComplaint = chiefComplaint !== undefined ? chiefComplaint : clinicalNote.chiefComplaint;
+      clinicalNote.treatmentPlan = treatmentPlan !== undefined ? treatmentPlan : clinicalNote.treatmentPlan;
+      if (actualAppointmentId) clinicalNote.appointmentId = actualAppointmentId;
+      if (roomName) clinicalNote.roomName = roomName;
+      await clinicalNote.save();
+    } else {
+      clinicalNote = await ClinicalNote.create({
+        appointmentId: actualAppointmentId,
+        roomName,
+        summary,
+        chiefComplaint,
+        treatmentPlan,
+      });
+    }
+
+    res.json({ success: true, message: "Clinical note saved successfully", data: clinicalNote });
+  } catch (error) {
+    console.error("Error saving clinical note:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 export default router;

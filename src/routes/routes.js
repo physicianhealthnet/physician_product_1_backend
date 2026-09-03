@@ -28,8 +28,10 @@ import chatRouter from "./chatRoutes.js";
 import shareRouter from "./shareRoutes.js";
 import scanPrescriptionRoute from "./scanPrescription.route.js";
 import labPrescriptionRoute from "./labPrescription.route.js";
+import jitsiBotRoutes from "./jitsiBotRoutes.js";
 
 const router = express.Router();
+
 
 router.use("/share", shareRouter);
 router.use("/user", userRouter);
@@ -71,5 +73,6 @@ router.use("/prescription", prescriptionRoute);
 router.use("/patient-chat", chatRouter);
 router.use("/scan-prescription", scanPrescriptionRoute);
 router.use("/lab-prescription", labPrescriptionRoute);
+router.use("/jitsi", jitsiBotRoutes);
 
 export default router;
